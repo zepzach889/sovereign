@@ -217,6 +217,12 @@
   .choice.dom-crown{border-left:3px solid var(--blue)}
   .choice.isnew{box-shadow:inset 0 0 0 1px rgba(198,164,106,.5)}
   .newtag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--brass);margin-left:7px}
+  .register{border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-bottom:6px}
+  .regrow{display:flex;justify-content:space-between;font-size:12.5px;color:#b7c0c8;padding:2px 0}
+  .regrow.tot{border-top:1px solid var(--line);margin-top:5px;padding-top:5px;color:var(--brass)}
+  .regrow .rv{font-family:ui-monospace,Menlo,monospace;color:#a8c6de}
+  .budgetbreak{font-size:11px;color:var(--dim);line-height:1.55;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+  .budgetbreak b{color:#b7c0c8;font-weight:600}
   .kbox{display:flex;justify-content:space-between;align-items:baseline;margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
   .kbox .kk{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
   .kbox .kv{font-family:ui-monospace,Menlo,monospace;font-size:14px;color:#a8c6de}
@@ -547,6 +553,27 @@ function upkeep(S){
 function netIncome(S){ return income(S)-upkeep(S); }
 const OVERDRAFT=40;
 
+/* how the money is actually figured — shown in the sidebar so the arithmetic
+   is never a mystery */
+function budgetBreakdown(S){
+  const dev=Math.round(S.development*0.55);
+  const tax=TAX_TIERS[S.taxRate];
+  const comp=S._companyGold||0;
+  const parts=[];
+  parts.push(`<b>In:</b> 16 base + ${dev} from development${(S._taxBonus?` +${Math.round((S._taxBonus)*100)}% (census)`:"")}, all ×${tax.mult} (${tax.label.toLowerCase()})${comp?` , +${comp} from the Company (untaxed)`:""}`);
+  const up=[];
+  up.push("10 court");
+  up.push(`${Math.round(S.military*0.4)} arms`);
+  if(S.privileges)up.push(`${S.privileges*4} privileges`);
+  const kin=(S.family||[]).filter(p=>p.alive).length;
+  if(kin)up.push(`${Math.round(kin*1.2)} royal household`);
+  if(S.gov.cabinet)up.push("5 cabinet");
+  if(S._armyUpkeep)up.push(`${S._armyUpkeep} standing army`);
+  if(S.debt>0)up.push(`${Math.min(30,Math.round(S.debt*0.12))} debt service`);
+  parts.push(`<b>Out:</b> ${up.join(" + ")}`);
+  parts.push(`<b>A turn is 3–5 years</b>; the net above is what the treasury takes in a turn of ordinary length.`);
+  return parts.join("<br>");
+}
 /* ---------- mortality (era-scaled; Dynastic is dangerous) ---------- */
 function mortalityChance(age,years){
   // per span of `years`; Dynastic-era medicine
@@ -843,6 +870,38 @@ const ACT_DOM={patronize:"faith",festival:"faith",festival_realm:"faith",
 const DOM_NAMES={martial:"The Sword",fiscal:"The Purse",faith:"The Altar",civil:"The Realm",crown:"The Prerogative"};
 const DOM_ORDER=["crown","martial","fiscal","faith","civil"];
 function actDomain(a){ return a.dom||ACT_DOM[a.id]||"civil"; }
+/* ---------- evolution lines ----------
+   An action keeps its slot across the centuries but changes its name, its
+   description and sometimes its price. `evo` maps an era index to the form
+   the action takes from that age onward.                                  */
+const ACT_EVO={
+  fund_army:{2:{label:"Raise and drill a standing army",hint:"paid regiments kept under arms the year round, not a host summoned and sent home"},
+             4:{label:"Expand the standing establishment",hint:"barracks, depots and a peacetime army the treasury feels every single year"}},
+  suppress:{2:{label:"Send in the constables",hint:"sworn men with warrants rather than a lord's retainers"},
+            3:{label:"Send in the constabulary",hint:"a paid force of order, answerable to the office and not to a family"},
+            4:{label:"Send in the police",hint:"uniformed, salaried, and increasingly written about in the newspapers"}},
+  tour:{2:{label:"Review the regiments",hint:"the sovereign at the head of drilled ranks, watched by everyone who matters"},
+        4:{label:"Hold a grand review",hint:"a spectacle of the state's strength, staged for the realm and for the ambassadors"}},
+  trade:{1:{label:"Charter a trading venture",hint:"a monopoly, a fleet and a share of whatever comes home"},
+         3:{label:"Subsidize the manufactories",hint:"bounties on cloth, iron and glass — wealth made rather than carried"}},
+  tax_decree:{2:{label:"Decree a general tax",hint:"assessed on the whole realm by the crown's own officers"},
+              3:{label:"Raise the rate by statute",hint:"written into law, collected by salaried men, and much harder to evade"}},
+  patronize:{2:{label:"Endow the cathedral chapters",hint:"stone, stipends and prayers for the dynasty in perpetuity"},
+             4:{label:"Endow the established church",hint:"the faith as an institution of state — funded, formal, and increasingly argued with"}},
+  festival:{2:{label:"Hold a court masque",hint:"the crown's magnificence performed for those permitted to see it"},
+            4:{label:"Stage a royal pageant",hint:"ceremony as statecraft, reported everywhere and believed by many"}},
+  festival_realm:{2:{label:"Hold a fair of the realm",hint:"markets, wrestling and free ale in every town that has a square"},
+                  4:{label:"Mount a national exhibition",hint:"the realm displaying itself to itself — and to visitors who count"}},
+  privileges:{3:{label:"Confirm the ancient privileges",hint:"exemptions the great houses insist are immemorial, whatever the rolls say"}},
+  appoint:{3:{label:"Appoint to the offices of state",hint:"examined men to salaried posts — competence bought with a wage rather than a favour"}}
+};
+function actView(S,a){
+  const map=ACT_EVO[a.id]; if(!map) return a;
+  const ei=eraIdx(S);
+  let form=null;
+  Object.keys(map).map(Number).sort((x,y)=>x-y).forEach(k=>{ if(ei>=k) form=map[k]; });
+  return form?Object.assign({},a,form):a;
+}
 function availableActions(S){ return ACTIONS.filter(a=>a.requires(S)&&!onCooldown(S,a.id)&&costMod(S,a.id)!==0); }
 function onCooldown(S,id){ return (S.cooldowns[id]||0)>S.turn; }
 function affordable(S,a){ const g=(adjCost(S,a).gold)||0; if(g>=0)return true; return (S.treasury+g)>=-OVERDRAFT; }
@@ -1064,6 +1123,136 @@ const EVENTS=[
       {label:"Have the guard move them on",cost:{stability:+6},fac:{peasantry:-12,clergy:-4},
         chron:S=>`the Crown had its guard clear the starving from the gate; a wound was opened that did not close.`,
         out:"The gate is clear. The memory is not."}]},
+  /* ================= DISASTERS & AGE-SPECIFIC TROUBLES =================
+     Each is gated to the ages where it belongs, and each is capable of
+     hurting. A realm that ignores them should feel it for decades.      */
+  { id:"murrain",w:1.1,freq:5,when:S=>eraIdx(S)<=1,title:"The Great Murrain",
+    text:S=>`A sickness is in the cattle. It began in one valley and it is now in nine; the beasts swell, stagger and die, and the ploughs stand idle behind them. The countryside is looking at the harvest it will not have.`,
+    choices:[
+      {label:"Open the granaries and remit the year's dues",cost:{gold:-26,stability:+3},fac:{peasantry:+9,provinces:+6,aristocracy:-4},
+        chron:S=>`a murrain swept the herds of ${S.nation}; the Crown opened its granaries and forgave the year's dues.`,
+        out:"Grain carts on every road and a year's rents written off. It is ruinously expensive and it is remembered for two generations."},
+      {label:"Let the country bear it",cost:{stability:-13},fac:{peasantry:-14,provinces:-9},
+        effect:S=>{S.development=clamp(S.development-6);},
+        chron:S=>`a murrain swept the herds and the Crown did nothing; villages emptied and the land went out of tillage.`,
+        out:"The herds die, then the villages thin, then the fields go back to scrub. Development falls and will take decades to recover."},
+      {label:"Order the herds culled and the roads closed",cost:{gold:-14,stability:-6},fac:{peasantry:-7,merchants:-6},
+        effect:S=>{S.development=clamp(S.development-2);},
+        chron:S=>`the Crown ordered the herds culled and the roads shut, and the murrain burned itself out early.`,
+        out:"Brutal, unpopular, and effective. The sickness dies out in a season — along with a good deal of somebody's livelihood."}]},
+  { id:"harvest_fail",w:1.2,freq:4,title:"The Harvest Fails",
+    text:S=>`Rain when there should have been sun, and then none at all. The granaries will not fill this year, and the price of bread has already told everyone what that means before the survey has even been read.`,
+    choices:[
+      {label:"Buy grain abroad at whatever it costs",cost:{gold:-30,stability:+4},fac:{peasantry:+8,merchants:+3},
+        chron:S=>`a failed harvest was met by grain bought abroad at ruinous cost.`,
+        out:"Ships and wagons and a bill that will be felt for years. Nobody starves, which is the whole point."},
+      {label:"Fix the price of bread by decree",cost:{stability:-4},fac:{peasantry:+6,merchants:-11},
+        chron:S=>`the Crown fixed the price of bread against a failed harvest; the merchants took the loss and remembered it.`,
+        out:"Bread stays affordable and the grain factors are furious. Some of it quietly leaves the country instead."},
+      {label:"Let the market find its level",cost:{stability:-12},fac:{peasantry:-15,merchants:+7,provinces:-6},
+        chron:S=>`the Crown let bread find its own price through a hungry winter.`,
+        out:"The price triples. The factors do very well. There is a word for what happens in the towns by spring, and it is not 'discontent'."}]},
+  { id:"pestilence",w:0.9,freq:7,title:"Pestilence",
+    text:S=>`It arrives the way it always does — a port, a rumour, then a street where nobody answers the door. The physicians disagree about everything except that it is spreading.`,
+    choices:[
+      {label:"Quarantine the ports and the afflicted towns",cost:{gold:-20,stability:-5},fac:{merchants:-9,clergy:+4},
+        effect:S=>{S._plagueMild=true;},
+        chron:S=>`pestilence came to ${S.nation} and was met with quarantine; trade suffered and the death rolls stayed short.`,
+        out:"Chains across the harbour and cordons around three towns. Trade strangles for a year. Far fewer graves than there might have been."},
+      {label:"Trust to prayer and processions",cost:{stability:-9},fac:{clergy:+9,peasantry:-6},
+        effect:S=>{S.development=clamp(S.development-7);S.family.forEach(p=>{if(p.alive&&chance(0.12)){p.alive=false;p.diedTurn=S.turn;S.notices.push({t:"d",id:p.id,name:p.name,age:p.age});}});},
+        chron:S=>`pestilence swept the realm and was answered with processions; it took the poor, the rich, and some of the royal house.`,
+        out:"The processions are magnificent and they gather the whole city into one place, which is exactly the difficulty. The rolls are long. The palace is not spared."},
+      {label:"Pay the physicians and open the pest-houses",cost:{gold:-26},fac:{peasantry:+6,clergy:-5},
+        effect:S=>{S.development=clamp(S.development-2);},
+        chron:S=>`the Crown paid for physicians and pest-houses through the plague year.`,
+        out:"Expensive, half-effective, and resented from the pulpits for meddling with providence. Fewer die than would have."}]},
+  { id:"mutiny",w:1.1,freq:5,when:S=>eraIdx(S)>=2&&(S._armyUpkeep||0)>0,title:"The Regiments Are Unpaid",
+    text:S=>`A standing army is a wonderful thing until the pay chest is late. Three regiments have not been paid in eleven months. They have not deserted — which, the officers explain carefully, is not the same as being reliable.`,
+    choices:[
+      {label:"Pay the arrears in full, at once",cost:{gold:-34,stability:+4},fac:{officers:+11},
+        chron:S=>`the Crown found the money and paid the army's arrears in full.`,
+        out:"The chests go out under guard and the mood turns within a week. Soldiers who are paid on time are a different animal entirely."},
+      {label:"Pay half and promise the rest",cost:{gold:-16,stability:-5},fac:{officers:-6},
+        chron:S=>`the Crown paid half the army's arrears and promised the remainder.`,
+        out:"Half now buys you a year. The officers write it down. Everyone writes it down."},
+      {label:"Let them plunder the country instead",cost:{stability:-16},fac:{officers:+5,peasantry:-16,provinces:-13},
+        effect:S=>{S.development=clamp(S.development-5);},
+        chron:S=>`unpaid regiments were turned loose upon the countryside in lieu of wages.`,
+        out:"You solve an army problem by creating a country problem. The regiments are content. Four districts are not, and will not be for a long time."}]},
+  { id:"siege_ledger",w:1.0,freq:6,when:S=>eraIdx(S)>=2&&ownsAdv(S,"bastion"),title:"The Fortress Ledger",
+    text:S=>`The engineers present their accounts. The bastions are magnificent, unbreachable, and consuming more of the revenue than the entire civil government. They would like to discuss the next phase.`,
+    choices:[
+      {label:"Build on — the realm must be unassailable",cost:{gold:-30},fac:{officers:+7,merchants:-7},
+        effect:S=>{S.military=clamp(S.military+7);S._armyUpkeep=(S._armyUpkeep||0)+4;},
+        chron:S=>`the Crown pressed on with the fortress programme whatever the cost.`,
+        out:"Unassailable, and closer to insolvent every year. This is precisely how real crowns ended up begging their estates for money."},
+      {label:"Halt the programme where it stands",cost:{stability:-5},fac:{officers:-9,merchants:+6},
+        effect:S=>{S._armyUpkeep=Math.max(0,(S._armyUpkeep||0)-5);},
+        chron:S=>`the Crown halted the fortress programme, half-finished, to save the treasury.`,
+        out:"Half a ring of works and a saved treasury. The engineers are appalled; the bankers are relieved."}]},
+  { id:"bank_run",w:1.0,freq:6,when:S=>eraIdx(S)>=3&&(S._creditBonus||0)>0,title:"The Banks Will Not Lend",
+    text:S=>`A rumour, a refused bill, a queue outside a counting house at dawn. By the third day the credit of the realm is a question rather than an assumption, and the Crown's own paper is trading below its face.`,
+    choices:[
+      {label:"Guarantee the banks from the treasury",cost:{gold:-32,stability:+3},fac:{merchants:+11},
+        chron:S=>`the Crown guaranteed the banks through the panic and the credit of ${S.nation} held.`,
+        out:"You spend a fortune to stop a queue. It works, and nobody thanks you, because the disaster that didn't happen is invisible."},
+      {label:"Let the weak houses fail",cost:{stability:-11},fac:{merchants:-14,peasantry:-5},
+        effect:S=>{S._creditBonus=Math.max(0,(S._creditBonus||0)-50);S.development=clamp(S.development-4);},
+        chron:S=>`the Crown let the banking houses fail; credit contracted and did not return for a generation.`,
+        out:"Three houses go down and take a great deal of other people's money with them. Your own borrowing costs more from now on."}]},
+  { id:"bread_riots",w:1.1,freq:5,when:S=>eraIdx(S)>=3&&(S.facs.peasantry.mood<45||S.facs.merchants.mood<40),title:"Bread Riots in the Capital",
+    text:S=>`It starts at a bakery and by evening it is four streets. They are not asking for a chamber or a charter. They are asking for bread, which is a far harder demand to negotiate away.`,
+    choices:[
+      {label:"Send the troops in",cost:{stability:-8},fac:{peasantry:-16,officers:+4,merchants:+5},
+        effect:S=>{S.legitPen=(S.legitPen||0)+6;},
+        chron:S=>`bread riots in the capital were put down by musketry.`,
+        out:"Order is restored by evening. There is a number attached to that, and the newspapers — or the pamphlets, or the balladeers — will make sure it is remembered."},
+      {label:"Open the crown's own stores",cost:{gold:-24,stability:+5},fac:{peasantry:+11},
+        chron:S=>`the Crown opened its own stores to the rioting poor, and the streets emptied peacefully.`,
+        out:"Carts of grain instead of volleys. It costs a great deal and it buys something no volley ever has."},
+      {label:"Hang the ringleaders and fix the price",cost:{stability:-3},fac:{peasantry:-6,merchants:-8},
+        chron:S=>`the ringleaders were hanged and the price of bread fixed by proclamation.`,
+        out:"Both barrels: a gallows and a price control. The streets clear. Nobody is happy, which is at least even-handed."}]},
+  { id:"pamphlet_war",w:1.1,freq:4,when:S=>eraIdx(S)>=4||ownsAdv(S,"press"),title:"The Pamphlet War",
+    text:S=>`Somebody with a press and no fear has begun printing about the court. It is funny, it is filthy, it is largely accurate, and it is being read aloud in every coffee house in the capital.`,
+    choices:[
+      {label:"Find the press and break it",cost:{gold:-8,stability:-6},fac:{clergy:+5,merchants:-8,reformers:-9},
+        effect:S=>{S.legitPen=(S.legitPen||0)+5;},
+        chron:S=>`the Crown hunted down the presses; the pamphlets multiplied in the hunting.`,
+        out:"You break one press. Four more appear, and now the story is about the breaking rather than the scandal."},
+      {label:"Answer it — buy presses of your own",cost:{gold:-18},fac:{merchants:+4},
+        effect:S=>{S._know.press=(S._know.press||0)+0.3;},
+        chron:S=>`the Crown answered the pamphleteers in print rather than by arrest.`,
+        out:"Undignified, effective, and quietly the beginning of something: the realm now has a government that argues in public."},
+      {label:"Ignore it entirely",cost:{stability:-3},fac:{reformers:+4},
+        chron:S=>`the Crown ignored the pamphleteers, and the pamphlets went on.`,
+        out:"It burns for a season and moves on to somebody else. Some of what was printed sticks anyway."}]},
+  { id:"salon_plot",w:0.9,freq:6,when:S=>eraIdx(S)>=4,title:"The Conspiracy of the Salons",
+    text:S=>`It is not a plot exactly. It is a dozen well-born people who meet to discuss philosophy, and who have lately been discussing which philosophies a crown could survive. One of them has written it down.`,
+    choices:[
+      {label:"Arrest them",cost:{stability:-7},fac:{aristocracy:-9,reformers:-11,clergy:+6},
+        effect:S=>{S.legitPen=(S.legitPen||0)+7;},
+        chron:S=>`the salon philosophers were arrested, and became the most widely read men in the realm.`,
+        out:"They go to prison, where they write. What they write travels further than their conversation ever did."},
+      {label:"Invite them to court instead",cost:{gold:-14,stability:+4},fac:{aristocracy:+5,reformers:+9,clergy:-6},
+        effect:S=>{S._advDiscount=(S._advDiscount||1)*0.96;},
+        chron:S=>`the Crown brought the philosophers to court and made patronage of what might have been sedition.`,
+        out:"Pensions, dinners and flattery. Two of them become sincere royalists. The rest at least write more carefully."},
+      {label:"Have them watched and left alone",fac:{reformers:+3},
+        chron:S=>`the Crown had the salons watched, and did nothing further.`,
+        out:"A drawer fills with reports that nobody acts on. It is the cheapest option and it decides nothing."}]},
+  { id:"great_fire",w:0.85,freq:8,title:"The Capital Burns",
+    text:S=>`It began in a workshop and the wind was wrong. By the second night a quarter of the capital is gone and the river is full of people who saved nothing.`,
+    choices:[
+      {label:"Rebuild in stone at the crown's charge",cost:{gold:-36,stability:+6},fac:{merchants:+8,peasantry:+7,provinces:-3},
+        effect:S=>{S.development=clamp(S.development+5);},
+        chron:S=>`after the great fire the Crown rebuilt the capital in stone at its own charge.`,
+        out:"A colossal bill and a better city — wider streets, stone frontages, and a reputation that outlives everyone involved."},
+      {label:"Leave the rebuilding to those who own the ground",cost:{stability:-9},fac:{merchants:-6,peasantry:-9},
+        effect:S=>{S.development=clamp(S.development-5);},
+        chron:S=>`the burnt capital was left to rebuild itself, and did so badly.`,
+        out:"It goes back up crooked, wooden and fast, which means it will burn again. The displaced are still displaced a decade later."}]},
   { id:"chamber_hunger",w:0.9,freq:5,when:S=>!S.pm&&S.gov.institutions.length>0&&S.gov.institutions[0].power<30,
     title:S=>`The ${S.gov.institutions[0].name} Demands More`,
     text:S=>`A chamber, once summoned, does not stay grateful. The ${S.gov.institutions[0].name} has drawn up a formal address: it holds too little power for the burdens laid upon it, and it wants more. The address is polite. The mood behind it is not.`,
@@ -1214,7 +1403,7 @@ function newGame(cfg){
     reforms:[], cooldowns:{}, eventLast:{}, seenMilestones:[],
     legitPen:0, notices:[], pm:null, nextElection:0, _elections:0,
     ui:{chronOpen:false}, _usedCands:[], ancestors:[],
-    eraIdx:0, knowledge:0, advances:[], works:[], _know:{}, _advDiscount:1, _newActs:[], _prevActs:[],
+    eraIdx:0, knowledge:0, advances:[], works:[], workCount:{}, _know:{}, _advDiscount:1, _newActs:[], _prevActs:[],
     _successions:0,_sameHouseSucc:0,_houseBreaks:0,_regenciesEnded:0,_femaleReigns:0,_reforms:0,_events:0,
     chronicle:[], phase:"court", phaseDone:{event:false,court:false,advance:false,dynastic:false},
     tab:"govern", currentEvent:null, result:null, pending:null, openReform:null, _reformPower:null,_reformLaw:null,
@@ -1284,7 +1473,10 @@ function afterElection(){
 function rollEvent(first){
   if(first){ S.phaseDone.event=true; S.phase="court"; return; }
   const pool=eligibleEvents(S);
-  if(pool.length&&chance(0.45)){
+  /* a quiet reign is a rare thing — and gets rarer as the realm grows more
+     complicated to govern */
+  const eventOdds=Math.min(0.82, 0.62 + eraIdx(S)*0.04 + (S.stability<40?0.08:0));
+  if(pool.length&&chance(eventOdds)){
     const total=pool.reduce((a,e)=>a+(e.w||1),0); let r=Math.random()*total; let ch=pool[0];
     for(const e of pool){ r-=e.w||1; if(r<=0){ch=e;break;} }
     S.currentEvent=ch; S.eventLast[ch.id]=S.turn; S.phase="event"; return;
@@ -1746,7 +1938,18 @@ const WORKS=[
 ];
 
 function ownsAdv(S,id){ return (S.advances||[]).includes(id); }
-function ownsWork(S,id){ return (S.works||[]).includes(id); }
+function workCount(S,id){ return (S.workCount&&S.workCount[id])||0; }
+function ownsWork(S,id){ return workCount(S,id)>0; }
+function workMax(w){ return w.max||3; }
+/* each further foundation costs more and yields less — the third university
+   is a fine thing, but it is not the first university */
+function workGold(S,w){ return Math.round(w.gold*(1+0.65*workCount(S,w.id))); }
+function workYield(w,n){ const step=[1,0.6,0.38,0.25]; return w.know*(step[n]||0.2); }
+function worksKnowledge(S){
+  let k=0;
+  WORKS.forEach(w=>{ const n=workCount(S,w.id); for(let i=0;i<n;i++) k+=workYield(w,i); });
+  return k;
+}
 function advCost(S,a){
   const base=ERAS[a.era]?ERAS[a.era].cost:200;
   const era=eraIdx(S);
@@ -1758,7 +1961,7 @@ function advCost(S,a){
 function knowledgeIncome(S){
   const k=S._know||{};
   let per = 0.30 + S.development*0.030 + (k.admin||0) + (k.press||0);
-  (S.works||[]).forEach(id=>{ const w=WORKS.find(x=>x.id===id); if(w)per+=w.know; });
+  per+=worksKnowledge(S);
   if(S.monarch&&S.monarch.trait==="curious") per*=1.22;
   if(S.stability<35) per*=0.75;
   if(S.regency) per*=0.85;
@@ -1772,7 +1975,7 @@ function availableAdvances(S){
 }
 function availableWorks(S){
   const era=eraIdx(S);
-  return WORKS.filter(w=>!ownsWork(S,w.id)&&w.era<=era);
+  return WORKS.filter(w=>w.era<=era&&workCount(S,w.id)<workMax(w));
 }
 function foundationsHeld(S,era){
   return ADVANCES.filter(a=>a.era===era&&a.found&&ownsAdv(S,a.id)).length;
@@ -1786,7 +1989,15 @@ function checkEraAdvance(S){
   S.chronicle.push({year:S.year,cls:"mstone",
     text:`In ${S.year}, ${S.nation} passed into its ${ERAS[S.eraIdx].name} age${behind<-25?" — a lifetime ahead of the world beyond its borders":behind>60?", long after its neighbours had done the same":""}. ${ERAS[S.eraIdx].blurb}`});
   S.notices.push(`The realm has entered the age of ${ERAS[S.eraIdx].name}. The court's business is not what it was.`);
-  try{ const now=availableActions(S).map(a=>a.id); S._newActs=now.filter(id=>!(S._prevActs||[]).includes(id)); S._prevActs=now; }catch(e){}
+  try{
+    const now=availableActions(S).map(a=>a.id);
+    const prev=S._prevActs||[];
+    const renamed=now.filter(id=>ACT_EVO[id]&&Object.keys(ACT_EVO[id]).map(Number).includes(S.eraIdx));
+    /* on the very first crossing the previous list is empty — don't tag the
+       whole toolbox as new, only what genuinely arrived or changed its name */
+    S._newActs=prev.length?now.filter(id=>!prev.includes(id)).concat(renamed):renamed;
+    S._prevActs=now;
+  }catch(e){}
   return true;
 }
 
@@ -2047,9 +2258,10 @@ function render(){
         <div class="bx"><span class="bk">Treasury</span><span class="bv treasury-v ${treasNeg}">${S.treasury<0?"−":""}${Math.abs(S.treasury)}${S.debt>0?` (credit left ${Math.max(0,40+(S._creditBonus||0)+S.treasury)})`:""}</span></div>
         <div class="bx"><span class="bk">Income</span><span class="bv">+${income(S)}</span></div>
         <div class="bx"><span class="bk">Upkeep</span><span class="bv">−${upkeep(S)}</span></div>
-        <div class="bx"><span class="bk">Net / yr</span><span class="bv ${netCls}">${net>=0?"+":"−"}${Math.abs(net)}</span></div>
+        <div class="bx"><span class="bk">Net / turn</span><span class="bv ${netCls}">${net>=0?"+":"−"}${Math.abs(net)}</span></div>
         <div class="grow"></div><span class="taxpill">Tax: ${TAX_TIERS[S.taxRate].label}</span>
       </div>
+      <div class="budgetbreak">${budgetBreakdown(S)}</div>
       <div class="kbox"><span class="kk">Knowledge</span><span class="kv">${S.knowledge.toFixed(1)} <small style="color:var(--dim);font-size:10px">+${knowledgeIncome(S).toFixed(2)}/yr</small></span></div>
       <div class="legit-src" style="margin:7px 0 0">${legitSources(S)}</div>
       <div class="facs"><div class="gt">The Powers of the Realm <span style="color:var(--dim);letter-spacing:.04em">— number = influence, bar = mood</span></div>${facHtml}</div>
@@ -2089,11 +2301,12 @@ function renderAdvance(){
       ${aff?"":`<div class="why">The realm does not yet know enough.</div>`}
     </button>`;}).join("");
   const wkHtml=wks.map(w=>{
-    const aff=S.treasury-w.gold>-(40+(S._creditBonus||0));
+    const n=workCount(S,w.id), g=workGold(S,w), y=workYield(w,n);
+    const aff=S.treasury-g>-(40+(S._creditBonus||0));
     return `<button class="choice adv-works" data-buywork="${w.id}" ${aff?"":"disabled"}>
-      <div class="cl"><span class="mk">⌂</span><span class="lbl">${esc(w.name)}</span></div>
+      <div class="cl"><span class="mk">⌂</span><span class="lbl">${esc(w.name)}${n?` — a further foundation (${n} standing)`:""}</span></div>
       <div class="ch">${esc(w.blurb)}</div>
-      <div class="costs"><span class="chip down">−${w.gold} gold</span><span class="chip know">+${w.know.toFixed(2)} knowledge/yr, forever</span>
+      <div class="costs"><span class="chip down">−${g} gold</span><span class="chip know">+${y.toFixed(2)} knowledge/yr, forever</span>${n?`<span class="chip">${workMax(w)-n} more may be founded</span>`:""}
         ${Object.keys(w.fac||{}).map(k=>`<span class="chip fac ${w.fac[k]>0?"up":"down"}">${S.facs[k].name} ${w.fac[k]>0?"+":""}${w.fac[k]}</span>`).join("")}</div>
       ${aff?"":`<div class="why">The treasury cannot bear this.</div>`}
     </button>`;}).join("");
@@ -2103,6 +2316,12 @@ function renderAdvance(){
       ${nextEra?`Two foundations (✦) carry ${esc(S.nation)} into the age of ${esc(nextEra.name)} — you hold <b>${held} of 2</b>.`:"The realm stands at the furthest edge of what this world yet knows."}</div>
     <div class="subhead">Advances — bought with knowledge</div>
     <div class="choices">${advHtml||`<div class="sit-text">Nothing further is within reach in this age.</div>`}</div>
+    ${(function(){const held=WORKS.filter(w=>workCount(S,w.id)>0);
+      if(!held.length)return "";
+      return `<div class="subhead">The realm's foundations</div>
+        <div class="register">${held.map(w=>{const n=workCount(S,w.id);let y=0;for(let i=0;i<n;i++)y+=workYield(w,i);
+          return `<div class="regrow"><span class="rn">${esc(w.name)}${n>1?` ×${n}`:""}</span><span class="rv">+${y.toFixed(2)}/yr</span></div>`;}).join("")}
+          <div class="regrow tot"><span class="rn">All foundations</span><span class="rv">+${worksKnowledge(S).toFixed(2)}/yr</span></div></div>`;})()}
     <div class="subhead">Works — built with gold, and paying knowledge forever</div>
     <div class="choices">${wkHtml||`<div class="sit-text">No new works can be founded in this age.</div>`}</div>
     <div class="choices"><button class="choice" data-skipadv="1">
@@ -2123,11 +2342,14 @@ function doBuyAdvance(id){
 }
 function doBuyWork(id){
   const w=WORKS.find(x=>x.id===id); if(!w)return;
-  S.treasury-=w.gold; S.works.push(w.id);
+  const n=workCount(S,w.id), g=workGold(S,w), y=workYield(w,n);
+  S.treasury-=g;
+  S.workCount=S.workCount||{}; S.workCount[w.id]=n+1;
+  if(!S.works.includes(w.id))S.works.push(w.id);
   for(const k in (w.fac||{})) S.facs[k].mood=clamp(S.facs[k].mood+w.fac[k]);
   if(w.effect)w.effect(S);
-  S.chronicle.push({year:S.year,text:`In ${S.year}, ${w.name.replace(/^The /,"the ")} was founded at the crown's charge.`});
-  S.result={out:`${w.blurb}\n\nIt will yield ${w.know.toFixed(2)} knowledge a year for as long as ${S.nation} stands.`,fortune:null,next:"advance"};
+  S.chronicle.push({year:S.year,text:`In ${S.year}, ${n?`a further ${w.name.replace(/^The /,"")}`:w.name.replace(/^The /,"the ")} was founded at the crown's charge.`});
+  S.result={out:`${w.blurb}\n\nIt will yield ${y.toFixed(2)} knowledge a year for as long as ${S.nation} stands${n?` — the realm now keeps ${n+1} of them.`:"."}`,fortune:null,next:"advance"};
   S.phase="outcome"; render();
 }
 function renderCourt(){
@@ -2148,8 +2370,9 @@ function renderCourt(){
     S.ui=S.ui||{}; S.ui.shut=S.ui.shut||{};
     const groups={};
     acts.forEach(a=>{ const d=actDomain(a); (groups[d]=groups[d]||[]).push(a); });
-    const card=(a,idx)=>{
-      const aff=affordable(S,a);const chips=costChips(adjCost(S,a),a.fac,a.consent);
+    const card=(a0,idx)=>{
+      const a=actView(S,a0);
+      const aff=affordable(S,a0);const chips=costChips(adjCost(S,a0),a0.fac,a0.consent);
       const isNew=(S._newActs||[]).includes(a.id);
       return `<button class="choice dom-${actDomain(a)}${isNew?" isnew":""}" data-act="${a.id}" ${aff?"":"disabled"}>
         <div class="cl"><span class="mk">${idx+1}</span><span class="lbl">${esc(a.label)}${isNew?`<span class="newtag">new this age</span>`:""}</span></div>
