@@ -1,0 +1,20 @@
+[
+  "00-util",
+  "01-core",
+  "02-names",
+  "03-model",
+  "04-actions",
+  "05-reforms",
+  "06-events",
+  "07-milestones",
+  "08-state",
+  "09-turn",
+  "10-eras",
+  "11-succession",
+  "12-revolt",
+  "13-legacy",
+  "14-render",
+  "15-handlers",
+  "16-setup",
+  "17-boot"
+]
