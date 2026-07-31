@@ -217,6 +217,13 @@
   .choice.dom-crown{border-left:3px solid var(--blue)}
   .choice.isnew{box-shadow:inset 0 0 0 1px rgba(198,164,106,.5)}
   .newtag{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--brass);margin-left:7px}
+  .provs{margin-top:11px}
+  .prov{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:#c3ccd4;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+  .prov small{color:var(--dim);font-size:10px}
+  .prov .pvl{font-family:ui-monospace,Menlo,monospace;color:#a8c6de;flex:none;margin-left:8px}
+  .prov.warn .pvl{color:var(--brass)}
+  .prov.crit .pvl{color:var(--crisis)}
+  .prov.gone{color:#6f7a84;font-style:italic;font-size:11px}
   .register{border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-bottom:6px}
   .regrow{display:flex;justify-content:space-between;font-size:12.5px;color:#b7c0c8;padding:2px 0}
   .regrow.tot{border-top:1px solid var(--line);margin-top:5px;padding-top:5px;color:var(--brass)}
@@ -541,7 +548,10 @@ const TAX_TIERS={
   oppressive:{label:"Oppressive",mult:1.8,stab:-5,fac:{peasantry:-8,merchants:-5,provinces:-4}},
 };
 const TAX_ORDER=["none","light","moderate","heavy","oppressive"];
-function income(S){ const base=(16+S.development*0.55)*(1+(S._taxBonus||0)); return Math.round(base*TAX_TIERS[S.taxRate].mult)+(S._companyGold||0); }
+function income(S){
+  /* crown lands sold in a capitulation are gone for good — the ceiling drops */
+  const base=(16+S.development*0.55)*(1+(S._taxBonus||0))*(1-(S._landsSold||0));
+  return Math.round(base*TAX_TIERS[S.taxRate].mult)+(S._companyGold||0); }
 function upkeep(S){
   let u=10+Math.round(S.military*0.4)+S.privileges*4;
   u+=Math.round(S.family.filter(p=>p.alive).length*1.2); // the court eats
@@ -555,6 +565,16 @@ const OVERDRAFT=40;
 
 /* how the money is actually figured — shown in the sidebar so the arithmetic
    is never a mystery */
+/* ---------- rupture pressure ----------
+   Each rupture builds visible weather before it breaks. These return a
+   pressure in years, so a rupture is always something you were warned of. */
+function debtPressure(S){ return S._debtYears||0; }
+function reactionPressure(S){ return S._reactYears||0; }
+function pliableKin(S){
+  return (S.family||[]).filter(p=>p.alive&&p.age>=14&&!p.outHouse&&p.house===S.house
+      &&["child","sibling","nephew","uncle","grandchild","kin"].includes(p.rel))
+    .sort((a,b)=>(a.trait==="cruel"?1:0)-(b.trait==="cruel"?1:0)||b.age-a.age)[0]||null;
+}
 function budgetBreakdown(S){
   const dev=Math.round(S.development*0.55);
   const tax=TAX_TIERS[S.taxRate];
@@ -571,6 +591,7 @@ function budgetBreakdown(S){
   if(S._armyUpkeep)up.push(`${S._armyUpkeep} standing army`);
   if(S.debt>0)up.push(`${Math.min(30,Math.round(S.debt*0.12))} debt service`);
   parts.push(`<b>Out:</b> ${up.join(" + ")}`);
+  if(S._landsSold)parts.push(`<b>Crown lands sold in the capitulation:</b> receipts permanently reduced by ${Math.round(S._landsSold*100)}%`);
   parts.push(`<b>A turn is 3–5 years</b>; the net above is what the treasury takes in a turn of ordinary length.`);
   return parts.join("<br>");
 }
@@ -724,6 +745,86 @@ function kinDistance(S,p){
 function designatable(S){
   return (S.family||[]).filter(p=>p.alive&&p.age>=6&&!p.outHouse&&p.rel!=="spouse"&&p.rel!=="dowager"&&p.rel!=="childspouse"&&p.rel!=="inlaw")
     .sort((a,b)=>kinDistance(S,a)-kinDistance(S,b)||birthOrder(a)-birthOrder(b)).slice(0,10);
+}
+
+/* =====================================================================
+   THE PROVINCES
+   A light territorial model — no map, no borders, just named places with
+   loyalty of their own. The provinces ESTATE remains the countryside's
+   voice at court; this is the country itself. Provinces can drift, be
+   governed by a royal, and — if neglected long enough — leave.
+   ===================================================================== */
+const PROV_PARTS={
+  pre:["North","South","East","West","Upper","Lower","Old","Far","Inner","Outer"],
+  root:["march","vale","reach","moor","fen","weald","holt","strand","hollow","dale","wold","heath"],
+  seat:["Aldmoor","Carrow","Brenna","Halstead","Verrin","Dunmere","Kessley","Tarnwick","Ostry","Cawdale","Merrow","Lindholt","Rask","Ferrow"]
+};
+function newProvinces(S,n){
+  const out=[], usedSeat=new Set(), usedName=new Set();
+  const count=n||(4+rand(3));
+  for(let i=0;i<count;i++){
+    let name, guard=0;
+    const cap=w=>w.charAt(0).toUpperCase()+w.slice(1);
+    do{ name = chance(0.5)
+      ? `${pick(PROV_PARTS.pre)} ${cap(pick(PROV_PARTS.root))}`
+      : `The ${cap(pick(PROV_PARTS.root))} of ${pick(PROV_PARTS.seat)}`;
+    }while(usedName.has(name)&&guard++<20);
+    usedName.add(name);
+    let seat; guard=0;
+    do{ seat=pick(PROV_PARTS.seat); }while(usedSeat.has(seat)&&guard++<20);
+    usedSeat.add(seat);
+    out.push({ id:"p"+i, name, seat,
+      loyalty: 52+rand(16),
+      weight: 1,                 /* share of the realm this province is */
+      governor: null,            /* a royal id, if one has been sent */
+      core: i===0,               /* the heartland never secedes */
+      unrest: 0 });
+  }
+  out[0].name = "The Crownlands";
+  out[0].weight = 1.4;
+  return out;
+}
+function provinces(S){ return S.provinces||[]; }
+function provinceById(S,id){ return provinces(S).find(p=>p.id===id)||null; }
+function provinceOfGovernor(S,personId){ return provinces(S).find(p=>p.governor===personId)||null; }
+function provinceLoyaltyAvg(S){
+  const ps=provinces(S); if(!ps.length)return 50;
+  const tw=ps.reduce((a,p)=>a+p.weight,0);
+  return ps.reduce((a,p)=>a+p.loyalty*p.weight,0)/tw;
+}
+/* provinces drift toward the mood of the provinces estate, with local noise;
+   a resident royal governor holds a province steady */
+function tickProvinces(S,span){
+  const target=S.facs.provinces.mood;
+  provinces(S).forEach(p=>{
+    const gov=p.governor?(S.family||[]).find(x=>x.id===p.governor&&x.alive):null;
+    if(p.governor&&!gov) p.governor=null;
+    /* a resident royal blunts the pull of a sour court and lifts the province */
+    let pull=(target-p.loyalty)*(gov?0.19:0.28);
+    if(gov) pull+=6;
+    if(p.core) pull+=1.5;
+    if(S.stability<40) pull-=2;
+    p.loyalty=clamp(p.loyalty+pull+(rand(5)-2));
+    p.unrest = p.loyalty<30 ? (p.unrest||0)+span : 0;
+  });
+}
+function restiveProvinces(S){ return provinces(S).filter(p=>!p.core&&p.loyalty<32); }
+function secedingProvince(S){
+  /* a province that has been at rock bottom for a decade is ready to go */
+  return provinces(S).filter(p=>!p.core&&p.loyalty<24&&(p.unrest||0)>=10)
+    .sort((a,b)=>a.loyalty-b.loyalty)[0]||null;
+}
+function loseProvince(S,p){
+  S.provinces=provinces(S).filter(x=>x.id!==p.id);
+  S.lostProvinces=S.lostProvinces||[];
+  S.lostProvinces.push({name:p.name,seat:p.seat,year:S.year});
+  S.development=clamp(S.development-Math.round(7*p.weight));
+  S.facs.provinces.strength=clamp(S.facs.provinces.strength-6);
+  S._realmShrunk=(S._realmShrunk||0)+1;
+}
+function provinceLabel(l){
+  if(l>=70)return "devoted"; if(l>=56)return "content"; if(l>=44)return "quiet";
+  if(l>=32)return "restive"; if(l>=24)return "seething"; return "in open defiance";
 }
 
 /* =====================================================================
@@ -1253,6 +1354,131 @@ const EVENTS=[
         effect:S=>{S.development=clamp(S.development-5);},
         chron:S=>`the burnt capital was left to rebuild itself, and did so badly.`,
         out:"It goes back up crooked, wooden and fast, which means it will burn again. The displaced are still displaced a decade later."}]},
+  /* ================= RUPTURE: PROVINCIAL SECESSION ================= */
+  { id:"prov_warning",w:1.4,freq:3,when:S=>restiveProvinces(S).length>0,
+    title:S=>`Trouble in ${restiveProvinces(S)[0].name}`,
+    text:S=>{const p=restiveProvinces(S)[0];
+      return `The assizes at ${p.seat} returned empty again. The crown's writ is read aloud in ${p.name} and then, politely, ignored; the tax farmers travel with escorts or not at all. Loyalty there stands at ${Math.round(p.loyalty)}, and the word being used in the market is not 'grievance'.`;},
+    choices:[
+      {label:"Send a royal to govern them in person",cost:{gold:-16},fac:{provinces:+6},
+        effect:S=>{const p=restiveProvinces(S)[0]; if(!p)return;
+          const cand=(S.family||[]).filter(x=>x.alive&&x.age>=16&&!x.job&&!x.outHouse)[0];
+          if(cand){cand.job="governor";p.governor=cand.id;p.loyalty=clamp(p.loyalty+14);}
+          else p.loyalty=clamp(p.loyalty+7);},
+        chron:S=>`the Crown sent one of its own blood to govern a restive province.`,
+        out:"A royal household established where there had only been a tax collector. It is remarkable how much difference being visited makes."},
+      {label:"Remit their dues for a term",cost:{gold:-22},fac:{provinces:+8,merchants:-4},
+        effect:S=>{const p=restiveProvinces(S)[0]; if(p)p.loyalty=clamp(p.loyalty+16);},
+        chron:S=>`the Crown remitted the dues of a restive province to buy back its loyalty.`,
+        out:"You forgive the arrears and the resentment goes with them. Expensive, and it teaches a lesson somebody else will try to learn from."},
+      {label:"Garrison the province and collect by force",cost:{gold:-12,arms:-3},fac:{provinces:-9,officers:+3},
+        effect:S=>{const p=restiveProvinces(S)[0]; if(p)p.loyalty=clamp(p.loyalty-6);},
+        chron:S=>`the Crown answered provincial discontent with a garrison and a tax column.`,
+        out:"The money comes in. So does the reason they wanted to stop paying in the first place."},
+      {label:"Ignore it — the country always grumbles",cost:{stability:-3},fac:{provinces:-6},
+        effect:S=>{const p=restiveProvinces(S)[0]; if(p)p.loyalty=clamp(p.loyalty-8);},
+        chron:S=>`the Crown ignored the discontent of a distant province.`,
+        out:"Nothing happens this year. Something is quite clearly going to happen in another one."}]},
+  { id:"secession",w:9,freq:1,when:S=>!!secedingProvince(S),
+    title:S=>`${secedingProvince(S).name} Renounces the Crown`,
+    text:S=>{const p=secedingProvince(S);
+      return `It is done in daylight and with paperwork. The estates of ${p.name} met at ${p.seat}, read a declaration that had clearly been drafted some time ago, and struck the crown's arms from the courthouse door. There is no army marching. There is simply a part of the realm that has stopped being part of the realm.`;},
+    choices:[
+      {label:"March, and bring them back by force",
+        resolve:S=>{ const p=secedingProvince(S);
+          if(S.military>=52&&S.facs.officers.mood>=48){
+            return {cost:{arms:-12,gold:-26,stability:-8},fac:{provinces:-10,officers:+4},
+              effect:S2=>{const q=secedingProvince(S2); if(q){q.loyalty=clamp(q.loyalty+22);q.unrest=0;}},
+              chron:S2=>`${p.name} renounced the Crown and was brought back into the realm at the point of the sword.`,
+              out:`The columns go in and the declaration is burned in the square at ${p.seat}. ${p.name} is yours again — sullen, garrisoned, and expensive to keep. You have bought perhaps a generation.`,fortune:"good"};}
+          return {cost:{arms:-16,gold:-30,stability:-14},fac:{provinces:-12,officers:-8},
+            effect:S2=>{const q=secedingProvince(S2); if(q)loseProvince(S2,q); S2.legitPen=(S2.legitPen||0)+10;},
+            chron:S2=>`the Crown marched against seceding ${p.name} and was beaten; the province was lost, and the losing was public.`,
+            out:`The army goes in and does not come back out with the province. ${p.name} is gone, and now everyone has watched the crown fail at something it announced it would do. That is the more expensive loss.`,fortune:"bad"};}},
+      {label:"Let them go, and salvage what terms you can",cost:{stability:-9},fac:{provinces:-5,merchants:+3},
+        effect:S=>{const p=secedingProvince(S); if(p)loseProvince(S,p); S.legitPen=(S.legitPen||0)+5;},
+        chron:S=>`the Crown let a seceding province depart, taking terms rather than casualties.`,
+        out:"Envoys, a treaty of commerce, a face-saving phrase about ancient friendship. The realm is permanently smaller and permanently poorer — and it did not have to bury anyone to find that out."}]},
+  /* ================= RUPTURE: BANKRUPTCY CAPITULATION ================= */
+  { id:"debt_warning",w:1.5,freq:2,when:S=>debtPressure(S)>=4&&debtPressure(S)<14,
+    title:"The Bankers Ask for a Private Word",
+    text:S=>`They are unfailingly polite about it. The interest is being serviced with borrowing; the borrowing is being serviced with more borrowing; and the gentlemen of the exchange would like to know — privately, before anyone else asks publicly — what the Crown intends to do about it.`,
+    choices:[
+      {label:"Retrench — cut the household and the establishment",cost:{gold:+22,stability:-6},fac:{aristocracy:-8,officers:-6},
+        effect:S=>{S._debtYears=Math.max(0,(S._debtYears||0)-8);S._armyUpkeep=Math.max(0,(S._armyUpkeep||0)-3);},
+        chron:S=>`the Crown retrenched sharply to hold off its creditors.`,
+        out:"Pensions stopped, offices left vacant, regiments quietly under strength. Ugly, unpopular, and it buys you years."},
+      {label:"Sell offices and honours for ready money",cost:{gold:+30},fac:{aristocracy:+4,merchants:-6},
+        effect:S=>{S._debtYears=Math.max(0,(S._debtYears||0)-5);S._costMod=(S._costMod||1)*1.06;},
+        chron:S=>`the Crown sold offices and honours to stave off its creditors.`,
+        out:"Money now, government by the highest bidder later. Every office you sell is one you cannot use."},
+      {label:"Borrow again and say nothing",cost:{stability:-3},
+        effect:S=>{S._debtYears=(S._debtYears||0)+3;},
+        chron:S=>`the Crown answered its creditors with fresh borrowing.`,
+        out:"Another loan on worse terms. The polite gentlemen go away. They will not be polite indefinitely."}]},
+  { id:"capitulation",w:9,freq:1,when:S=>debtPressure(S)>=14,
+    title:"The Crown Cannot Pay",
+    text:S=>`The payment is missed, and this time it is missed publicly. Within a month the creditors and the estates are sitting in the same room — which has never once happened in this realm's history for a good reason — and they have drafted terms rather than a petition.`,
+    choices:[
+      {label:"Accept the settlement",
+        resolve:S=>{
+          const hasCh=S.gov.institutions.length>0;
+          return {cost:{stability:+4},fac:{merchants:+8,aristocracy:+5,peasantry:-4},
+            effect:S2=>{
+              S2._landsSold=Math.min(0.45,(S2._landsSold||0)+0.18);
+              S2.treasury=Math.max(S2.treasury,-20); S2.debt=0; S2._debtYears=0;
+              if(hasCh){ const inst=S2.gov.institutions[0];
+                transferPower(S2,inst,Math.min(14,S2.gov.crown.power));
+                if(!inst.rights.includes("tax"))inst.rights.push("tax");
+              } else { forceChamber(S2,16); }
+              S2.legitPen=(S2.legitPen||0)+6;
+            },
+            chron:S2=>`unable to pay, the Crown accepted the creditors' settlement: lands sold, and the purse placed under a standing chamber.`,
+            out:`The debts are cleared and the price is written into the constitution. Crown lands are sold off — your receipts are permanently smaller — and ${hasCh?"the chamber takes the power of the purse, which no crown has ever taken back easily":"a standing chamber is called into being to hold the purse, which was precisely what you had spent a century avoiding"}. You are still sovereign. You are sovereign of less.`,fortune:"bad"};}},
+      {label:"Repudiate the debt entirely",
+        resolve:S=>({cost:{stability:-18},fac:{merchants:-24,aristocracy:-10,provinces:-6},
+          effect:S2=>{S2.debt=0;S2.treasury=Math.max(S2.treasury,-10);S2._debtYears=0;
+            S2._creditBonus=0; S2._costMod=(S2._costMod||1)*1.18; S2.legitPen=(S2.legitPen||0)+12;
+            provinces(S2).forEach(p=>{p.loyalty=clamp(p.loyalty-8);});},
+          chron:S2=>`the Crown repudiated its debts outright; credit died, and everything the realm bought thereafter cost more.`,
+          out:"You simply refuse to pay. The bankers are ruined, the exchange closes, and nobody will lend to this crown again in your lifetime — which means everything from now on is paid for in cash, at a premium, forever. It is not a settlement. It is a wound you chose."})}]},
+
+  /* ================= RUPTURE: ARISTOCRATIC REACTION ================= */
+  { id:"react_warning",w:1.5,freq:2,when:S=>reactionPressure(S)>=4&&reactionPressure(S)<13,
+    title:"The Great Houses Meet for the Hunting",
+    text:S=>`Eleven of the first families are gathered at a country seat, ostensibly for the season. Their sons command regiments. Their chaplains preach to half the realm. The invitations went out before anyone thought to inform the court, and no one has thought to inform it since.`,
+    choices:[
+      {label:"Buy them back — honours, offices, exemptions",cost:{gold:-30},fac:{aristocracy:+14,clergy:+8,peasantry:-5},
+        effect:S=>{S._reactYears=Math.max(0,(S._reactYears||0)-9);},
+        chron:S=>`the Crown bought back the loyalty of the great houses with honours and exemptions.`,
+        out:"Garters, sinecures and a quiet promise about the land tax. Everything you conceded here you will want back in fifty years."},
+      {label:"Break the leading house as an example",cost:{stability:-9},fac:{aristocracy:-12,clergy:-5,peasantry:+7,officers:+4},
+        effect:S=>{S._reactYears=(S._reactYears||0)+3;},
+        chron:S=>`the Crown attainted the leading house of the realm to cow the rest.`,
+        out:"Lands forfeit, a title extinguished, a family scattered. The other ten go home very quiet — and very clear about what the crown is now prepared to do."},
+      {label:"Let them hunt",cost:{stability:-2},
+        effect:S=>{S._reactYears=(S._reactYears||0)+4;},
+        chron:S=>`the Crown took no notice of the gathering of the great houses.`,
+        out:"They hunt. They talk. They go home. The invitations for next season go out earlier."}]},
+  { id:"reaction",w:9,freq:1,when:S=>reactionPressure(S)>=13,
+    title:"The Restoration of the Old Order",
+    text:S=>`They do not call it a rebellion, because that would require admitting there is something to rebel against. The great houses and the bishops simply announce that the realm has been misgoverned, that the ancient constitution will be restored, and that the crown will be worn by someone more attentive to it.`,
+    choices:[
+      {label:"Resist — call the realm to the crown's defence",
+        resolve:S=>{
+          const strong=S.military>=50&&(S.facs.officers.mood>=50||S.facs.peasantry.mood>=55);
+          if(strong) return {cost:{stability:-12,arms:-9,gold:-20},fac:{aristocracy:-16,clergy:-10,officers:+6,peasantry:+8},
+            effect:S2=>{S2._reactYears=0;S2.facs.aristocracy.strength=clamp(S2.facs.aristocracy.strength-10);},
+            chron:S2=>`the great houses moved to restore the old order and were broken; the aristocracy never recovered its former weight.`,
+            out:"You call, and the realm comes — the regiments, the towns, and a startling number of people who have their own reasons to dislike dukes. The rising collapses. The old families are diminished permanently, which is a rare thing to be able to say.",fortune:"good"};
+          return {cost:{stability:-16},fac:{aristocracy:+10,clergy:+8},
+            effect:S2=>{doReaction(S2);},
+            chron:S2=>`the Crown resisted the reaction and lost; the old order was restored over its body.`,
+            out:"You call, and not enough comes. The gates open, the reforms are struck out one by one, and a more agreeable head is found for the crown.",fortune:"bad"};}},
+      {label:"Submit, and keep what can be kept",cost:{stability:-8},fac:{aristocracy:+12,clergy:+9,merchants:-8},
+        effect:S=>{doReaction(S);},
+        chron:S=>`the Crown submitted to the reaction; the ancient constitution was restored and the throne changed hands.`,
+        out:"You sign what is put in front of you. The chambers lose what they were given, the statutes are repealed, and the crown passes to someone the great houses find more restful. You are still the will behind the throne — it is simply a different throne now."}]},
   { id:"chamber_hunger",w:0.9,freq:5,when:S=>!S.pm&&S.gov.institutions.length>0&&S.gov.institutions[0].power<30,
     title:S=>`The ${S.gov.institutions[0].name} Demands More`,
     text:S=>`A chamber, once summoned, does not stay grateful. The ${S.gov.institutions[0].name} has drawn up a formal address: it holds too little power for the burdens laid upon it, and it wants more. The address is polite. The mood behind it is not.`,
@@ -1403,7 +1629,7 @@ function newGame(cfg){
     reforms:[], cooldowns:{}, eventLast:{}, seenMilestones:[],
     legitPen:0, notices:[], pm:null, nextElection:0, _elections:0,
     ui:{chronOpen:false}, _usedCands:[], ancestors:[],
-    eraIdx:0, knowledge:0, advances:[], works:[], workCount:{}, _know:{}, _advDiscount:1, _newActs:[], _prevActs:[],
+    eraIdx:0, knowledge:0, advances:[], works:[], workCount:{}, provinces:[], lostProvinces:[], _know:{}, _advDiscount:1, _newActs:[], _prevActs:[],
     _successions:0,_sameHouseSucc:0,_houseBreaks:0,_regenciesEnded:0,_femaleReigns:0,_reforms:0,_events:0,
     chronicle:[], phase:"court", phaseDone:{event:false,court:false,advance:false,dynastic:false},
     tab:"govern", currentEvent:null, result:null, pending:null, openReform:null, _reformPower:null,_reformLaw:null,
@@ -1414,6 +1640,7 @@ function newGame(cfg){
   S.monarch.born=S.year-S.monarch.age; S.monarch.reignStart=S.year;
   /* the founding generation needs recorded parents, or a derived family
      graph reads the founder's own brothers and sisters as strangers */
+  S.provinces=newProvinces(S);
   const oldKing=PID++, oldQueen=PID++;
   S.monarch.parents=[oldKing,oldQueen];
   // a sibling or two of the founder
@@ -1616,8 +1843,16 @@ function doRole(id){
   if(!r||!elig.length){toDynCourt();return;}
   const p=elig.sort((a,b)=>b.age-a.age)[0];
   p.job=r.id;
+  let extra="";
+  if(r.id==="governor"){
+    /* send them where they are most needed */
+    const target=provinces(S).filter(x=>!x.core&&!x.governor).sort((a,b)=>a.loyalty-b.loyalty)[0]
+      ||provinces(S).filter(x=>!x.governor)[0];
+    if(target){ target.governor=p.id; target.loyalty=clamp(target.loyalty+8);
+      extra=` ${p.name} rides for ${target.name}, whose loyalty was the thinnest in the realm.`; }
+  }
   applyOutcome({fac:r.fac,chron:S=>`${p.name} of the royal house was made ${r.name}.`,
-    out:`${p.name} takes up the office of ${r.name}. A royal face where the realm can see it — and a royal relation with a power base of their own, which has gone well roughly half the time in history.`},"dyncourt");
+    out:`${p.name} takes up the office of ${r.name}.${extra} A royal face where the realm can see it — and a royal relation with a power base of their own, which has gone well roughly half the time in history.`},"dyncourt");
   render();
 }
 function doWillDesignate(pid,nx){
@@ -1673,6 +1908,13 @@ function endTurn(){
   // tax drift
   const t=TAX_TIERS[S.taxRate]; S.stability=clamp(S.stability+t.stab);
   for(const k in (t.fac||{})){ S.facs[k].mood=clamp(S.facs[k].mood+t.fac[k]); }
+  tickProvinces(S,span);
+  /* rupture weather accumulates in years, and drains when things improve */
+  const deep=S.treasury<-(90+(S._creditBonus||0)*0.4);
+  S._debtYears = deep ? (S._debtYears||0)+span : Math.max(0,(S._debtYears||0)-span);
+  const nobles=(S.facs.aristocracy.mood+S.facs.clergy.mood)/2;
+  const sour = nobles<30 && S.stability<45;
+  S._reactYears = sour ? (S._reactYears||0)+span : Math.max(0,(S._reactYears||0)-span*1.5);
   if(S._celebrate&&S._celebrate.turn<S.turn)S._celebrate=null;
   // knowledge accrues
   S.knowledge=Math.round((S.knowledge+knowledgeIncome(S)*span)*10)/10;
@@ -2108,6 +2350,40 @@ const REVOLT={ id:"revolt",title:"The Realm Rises",freq:3,
         return{cost:{stability:+10,arms:-16},fac:{provinces:-8,officers:-6,aristocracy:-6},chron:S=>`the Crown tried to crush the great rising and could not; it kept its throne only by surrendering power.`,out:"Your soldiers are too few. You keep the crown only by conceding what you fought to avoid."};}},
   ]};
 
+/* ---------- rupture machinery ---------- */
+function forceChamber(S,power){
+  const nm=(typeof culture==="function"?culture(S).inst[0]:"The Estates");
+  const inst={id:"ch"+S.gov.institutions.length,name:nm,composition:"nobility",
+    power:0,rights:["tax","consent"]};
+  S.gov.institutions.push(inst);
+  transferPower(S,inst,Math.min(power,S.gov.crown.power));
+  S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, ${nm} was called into being — not by the Crown's grace but by its creditors.`});
+}
+/* the aristocratic reaction: reforms rolled back, and a more agreeable head found */
+function doReaction(S){
+  S._reactYears=0;
+  /* power drains back to the throne */
+  S.gov.institutions.forEach(inst=>{ powerToCrown(S,inst,Math.ceil(inst.power*0.6)); });
+  S.gov.institutions=S.gov.institutions.filter(i=>i.power>0);
+  if(S.pm){ S.pm=null; S._minority=false; }
+  S.reforms=(S.reforms||[]).slice(0,Math.max(0,Math.ceil((S.reforms||[]).length*0.4)));
+  S.facs.aristocracy.strength=clamp(S.facs.aristocracy.strength+8);
+  S.legitPen=(S.legitPen||0)+8;
+  /* a pliable member of the existing house if one can be found; a new house if not */
+  const kin=pliableKin(S);
+  if(kin){
+    S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, the great houses set aside the sovereign and raised ${kin.name} of the same blood in their place — a crowned signature for the restored order.`});
+    crownPerson(kin,S.house,true);
+  } else {
+    const hs=(typeof housePool==="function"?housePool():["Vael"]).filter(h=>h!==S.house);
+    const nh=pick(hs.length?hs:["Vael"]);
+    const g=chance(0.7)?"m":"f";
+    S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, with no acceptable heir of the old blood, the great houses gave the crown to the House of ${nh}.`});
+    crownPerson({id:PID++,name:nameFor(g,usedNames(S)),gender:g,age:26+rand(22)},nh,true);
+  }
+  refreshRelations(S);
+}
+
 /* =====================================================================
    LEGACY
    ===================================================================== */
@@ -2190,6 +2466,18 @@ function relLabel(p){
     default: return "cousin";
   }
 }
+function provincePanel(){
+  const ps=provinces(S); if(!ps.length)return "";
+  const lost=(S.lostProvinces||[]).length;
+  return `<div class="provs"><div class="gt">The Country <span style="color:var(--dim);letter-spacing:.04em">— loyalty of each province</span></div>
+    ${ps.map(p=>{
+      const gov=p.governor?(S.family||[]).find(x=>x.id===p.governor&&x.alive):null;
+      const cls=p.loyalty<24?"crit":p.loyalty<32?"warn":"";
+      return `<div class="prov ${cls}"><span class="pvn">${esc(p.name)}${p.core?' <small>· the seat of the crown</small>':""}${gov?` <small>· ${esc(gov.name)} governs</small>`:""}</span>
+        <span class="pvl">${Math.round(p.loyalty)} <small>${provinceLabel(p.loyalty)}</small></span></div>`;}).join("")}
+    ${lost?`<div class="prov gone"><span class="pvn">Lost: ${(S.lostProvinces||[]).map(x=>esc(x.name)+" ("+x.year+")").join(", ")}</span></div>`:""}
+  </div>`;
+}
 function familyPanel(){
   const rows=[]; const h=heirOf(S);
   const order={spouse:0,child:1,childspouse:2,grandchild:3,sibling:4,dowager:5,uncle:6,kin:7};
@@ -2264,6 +2552,7 @@ function render(){
       <div class="budgetbreak">${budgetBreakdown(S)}</div>
       <div class="kbox"><span class="kk">Knowledge</span><span class="kv">${S.knowledge.toFixed(1)} <small style="color:var(--dim);font-size:10px">+${knowledgeIncome(S).toFixed(2)}/yr</small></span></div>
       <div class="legit-src" style="margin:7px 0 0">${legitSources(S)}</div>
+      ${provincePanel()}
       <div class="facs"><div class="gt">The Powers of the Realm <span style="color:var(--dim);letter-spacing:.04em">— number = influence, bar = mood</span></div>${facHtml}</div>
     </aside>
     <section class="console">
