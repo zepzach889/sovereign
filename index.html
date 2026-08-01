@@ -237,6 +237,9 @@
   .regrow{display:flex;justify-content:space-between;font-size:12.5px;color:#b7c0c8;padding:2px 0}
   .regrow.tot{border-top:1px solid var(--line);margin-top:5px;padding-top:5px;color:var(--brass)}
   .regrow .rv{font-family:ui-monospace,Menlo,monospace;color:#a8c6de}
+  .bkline{margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+  .bktog{background:transparent;border:none;color:var(--dim);font-size:10.5px;letter-spacing:.04em;cursor:pointer;padding:0}
+  .bktog:hover{color:var(--brass)}
   .budgetbreak{font-size:11px;color:var(--dim);line-height:1.55;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
   .budgetbreak b{color:#b7c0c8;font-weight:600}
   .kbox{display:flex;justify-content:space-between;align-items:baseline;margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
@@ -410,9 +413,11 @@ function culture(St){ return CULTURES[(St&&St.culture)||"anglo"]||CULTURES.anglo
 function namePool(St,g){
   const c=culture(St), set=(g==="f")?c.f:c.m;
   const ei=(St&&typeof eraIdx==="function")?eraIdx(St):0;
-  if(ei<3) return set.early;
-  if(ei<4) return set.early.concat(set.late);
-  return set.late.concat(set.early.slice(0,Math.max(3,set.early.length-6)));
+  /* the oldest names belong to the founding age; fashion moves on quickly */
+  if(ei<1) return set.early;
+  if(ei<3) return set.early.slice(Math.floor(set.early.length/2)).concat(set.late.slice(0,4));
+  if(ei<5) return set.late.concat(set.early.slice(-4));
+  return set.late;
 }
 function curS(){ return (typeof S!=="undefined")?S:null; }
 function nameFor(g,used){
@@ -576,6 +581,7 @@ function upkeep(S){
   u+=Math.round(S.family.filter(p=>p.alive).length*1.2); // the court eats
   if(S.gov.cabinet)u+=5;
   u+=(S._armyUpkeep||0);
+  u+=(S._upkeepAge||0);   /* rails, sewers, schools and locks do not maintain themselves */
   if(S.debt>0)u+=Math.min(30,Math.round(S.debt*0.12));
   return u;
 }
@@ -608,6 +614,7 @@ function budgetBreakdown(S){
   if(kin)up.push(`${Math.round(kin*1.2)} royal household`);
   if(S.gov.cabinet)up.push("5 cabinet");
   if(S._armyUpkeep)up.push(`${S._armyUpkeep} standing army`);
+  if(S._upkeepAge)up.push(`${S._upkeepAge} public works and services`);
   if(S.debt>0)up.push(`${Math.min(30,Math.round(S.debt*0.12))} debt service`);
   parts.push(`<b>Out:</b> ${up.join(" + ")}`);
   if(S._landsSold)parts.push(`<b>Crown lands sold in the capitulation:</b> receipts permanently reduced by ${Math.round(S._landsSold*100)}%`);
@@ -846,6 +853,10 @@ function provinceLabel(l){
   if(l>=32)return "restive"; if(l>=24)return "seething"; return "in open defiance";
 }
 
+function autonomySeeker(S){
+  return provinces(S).filter(p=>!p.core&&!p.autonomy).sort((a,b)=>a.loyalty-b.loyalty)[0]||null;
+}
+
 /* =====================================================================
    THE FOUR PRESSURES
    Every regime carries all four. They are the weather behind every
@@ -870,37 +881,57 @@ function pressureNow(S,id){
   const base=pressureBase(S,id);
   return clamp(base+bump);
 }
+/* A state failing is the single largest driver of every pressure. A realm
+   with no legitimacy, no order, no money and a crown that holds nothing is
+   not a realm anyone is going to leave standing. */
+function collapseDrive(S){
+  const legit=legitimacy(S);
+  let c=0;
+  c+=Math.max(0,45-legit)*0.85;
+  c+=Math.max(0,42-S.stability)*0.75;
+  if(S.treasury<-60)c+=12;
+  if(S.debt>0&&netIncome(S)<0)c+=10;
+  if(isMonarchy(S)&&S.gov.crown.power<=8)c+=14;
+  const angry=Object.keys(S.facs).filter(k=>S.facs[k].present&&S.facs[k].mood<25).length;
+  c+=angry*6;
+  return c;
+}
 function pressureBase(S,id){
-  const f=S.facs, legit=legitimacy(S);
+  const f=S.facs;
+  const collapse=collapseDrive(S);
   if(id==="military"){
-    return clamp( (S._militaryLeaned||0)*3
+    return clamp( collapse*0.55
+      + (S._militaryLeaned||0)*3
       + Math.max(0,S.military-45)*0.5
       + (S._armyUpkeep||0)*1.2
-      + Math.max(0,50-legit)*0.35
-      + (f.officers.mood<40?12:0) );
+      + (f.officers.mood<40?14:0)
+      + (f.officers.mood<20?12:0) );
   }
   if(id==="radical"){
     const w=f.workers||{mood:50,strength:0,present:false};
     const r=f.reformers||{mood:50,strength:0,present:false};
-    return clamp( (w.present?Math.max(0,55-w.mood)*0.55+w.strength*0.25:0)
+    /* the poor do not need a proletariat to rise — hunger predates industry */
+    return clamp( collapse*0.7
+      + Math.max(0,45-f.peasantry.mood)*0.7
+      + (w.present?Math.max(0,55-w.mood)*0.55+w.strength*0.25:0)
       + (r.present?Math.max(0,55-r.mood)*0.4+r.strength*0.2:0)
-      + Math.max(0,45-f.peasantry.mood)*0.25
-      + Math.max(0,40-S.stability)*0.3 );
+      + (S.taxRate==="oppressive"?12:S.taxRate==="heavy"?5:0) );
   }
   if(id==="constitutional"){
     const r=f.reformers||{mood:50,strength:0,present:false};
-    return clamp( f.merchants.strength*0.28
+    return clamp( collapse*0.5
+      + f.merchants.strength*0.28
       + (r.present?r.strength*0.3:0)
       + (S._pressOn?10:0) + (S._opinionOn?10:0)
       + eraIdx(S)*4
-      + Math.max(0,45-legit)*0.3 );
+      + ((S.gov.institutions||[]).length?8:0) );
   }
   if(id==="restorationist"){
-    return clamp( (f.aristocracy.mood>55?12:0)
+    return clamp( (isMonarchy(S)?0:collapse*0.6)
+      + (f.aristocracy.mood>55?12:0)
       + f.aristocracy.strength*0.22 + f.clergy.strength*0.18
       + ((S.exiles&&S.exiles.alive)?20:0)
-      + (S._martyr?25:0)
-      + Math.max(0,40-S.stability)*0.2 );
+      + (S._martyr?25:0) );
   }
   return 0;
 }
@@ -928,10 +959,13 @@ function pressureWord(v){
 }
 /* the sidebar reading — deliberately impressionistic, not a progress bar */
 function pressurePanel(S){
-  const lead=leadingPressure(S);
+  const cur=S.regime||"monarchy";
+  const live=PRESSURES.filter(p=>REGIME_OF_PRESSURE[p.id]!==cur);
+  let lead=null;
+  live.forEach(p=>{ const v=pressureOf(S,p.id); if(!lead||v>lead.v)lead={def:p,v}; });
   if(!lead||lead.v<30)return "";
   return `<div class="press"><div class="gt">The Drift of the Realm</div>
-    ${PRESSURES.filter(p=>pressureOf(S,p.id)>=30).sort((a,b)=>pressureOf(S,b.id)-pressureOf(S,a.id)).map(p=>{
+    ${PRESSURES.filter(p=>pressureOf(S,p.id)>=30&&REGIME_OF_PRESSURE[p.id]!==(S.regime||"monarchy")).sort((a,b)=>pressureOf(S,b.id)-pressureOf(S,a.id)).map(p=>{
       const v=pressureOf(S,p.id);
       const cls=v>=78?"crit":v>=62?"warn":"";
       return `<div class="prow ${cls}"><span class="pn">${esc(p.name)}</span><span class="pw">${pressureWord(v)}</span></div>`;
@@ -1381,11 +1415,14 @@ const EVENTS=[
       {label:"Receive it politely and shelve it",cost:{},fac:{peasantry:-6,merchants:-4},spurnPetition:true,
         chron:S=>`the Crown received the Commons' petition with courtesy and buried it; the courtesy fooled no one for long.`,
         out:"Warm words and a drawer that never opens. They notice. The chamber's patience is not infinite."}]},
-  { id:"province_autonomy",w:0.9,freq:4,when:S=>S.facs.provinces.mood<58,title:"A Province Demands Home Rule",
-    text:S=>`The far province of Marrow is tired of taxes decided in a capital it never sees. Its delegation asks for autonomy. The word behind the word is independence.`,
+  { id:"province_autonomy",w:0.9,freq:4,when:S=>provinces(S).some(p=>!p.core&&!p.autonomy),
+    title:S=>{const p=autonomySeeker(S);return `${p?p.name:"A Province"} Demands Home Rule`;},
+    text:S=>{const p=autonomySeeker(S);
+      return `${p?p.name:"The far country"} is tired of taxes decided in a capital it never sees${p?`, and its delegation has come up from ${p.seat} to say so`:""}. They ask for autonomy. The word behind the word is independence.`;},
     choices:[
       {label:"Grant broad self-rule",cost:{gold:-10,stability:+7},fac:{provinces:+12,aristocracy:-3},
-        chron:S=>`the Crown answered Marrow with a generous grant of self-rule; the province stayed, proudly, within the realm.`,
+        effect:S=>{const p=autonomySeeker(S);if(p){p.autonomy=true;p.loyalty=clamp(p.loyalty+18);}},
+        chron:S=>`the Crown answered the demand with a generous grant of self-rule; the province stayed, proudly, within the realm.`,
         out:"The delegation leaves with more than they dared ask. Marrow stays — loudly — inside your borders."},
       {label:"Refuse and garrison the province",cost:{gold:-12,stability:+4},fac:{provinces:-12,peasantry:-4,officers:+3},
         chron:S=>`the Crown answered Marrow with the regiment rather than the pen; its loyalty was never again freely given.`,
@@ -1740,6 +1777,60 @@ const EVENTS=[
         effect:S=>{S.development=clamp(S.development-5);bumpPressure(S,"radical",-12);},
         chron:S=>`the rising of the country burned itself out over three years, taking a good deal of the country with it.`,
         out:"It exhausts itself eventually, the way fires do. What is left is a countryside that has learned it can burn things, and a nobility that has learned the crown will not protect them."}]},
+  /* ================= DISASTERS OF THE INDUSTRIAL AGES ================= */
+  { id:"pit_disaster",w:1.2,freq:4,when:S=>eraIdx(S)>=5,title:"The Pit",
+    text:S=>`Firedamp, at four in the morning, two hundred fathoms down. The cage brings up what it can. By afternoon the whole district is standing at the head of the shaft in silence, and the owners' agent has said something unforgivable to a newspaper.`,
+    choices:[
+      {label:"Compensate the families and inspect every pit in the realm",cost:{gold:-28,stability:+5},fac:{workers:+14,peasantry:+8,merchants:-10},
+        effect:S=>{S._upkeepAge=(S._upkeepAge||0)+2;bumpPressure(S,"radical",-14);},
+        chron:S=>`after the disaster at the pit, the Crown paid the families and set inspectors over every mine in the realm.`,
+        out:"Money to the widows within the month and an inspectorate that will be resented for a century. The owners are furious. Nobody else is."},
+      {label:"Call it an act of God",cost:{stability:-9},fac:{workers:-18,merchants:+6},
+        effect:S=>{bumpPressure(S,"radical",16);},
+        chron:S=>`the government declared the pit disaster an act of God, and the coalfield did not forget it.`,
+        out:"The inquiry finds nobody at fault, which everybody expected and nobody forgives. The combinations gain more members that year than in the previous ten."}]},
+  { id:"general_strike",w:1.3,freq:4,when:S=>eraIdx(S)>=6&&S.facs.workers&&S.facs.workers.present&&S.facs.workers.mood<48,
+    title:"The Works Stand Idle",
+    text:S=>`It began in one trade and by the end of the week it is all of them. No coal moves, no trains run, and the capital is discovering how many things it assumed would simply happen. The committee asks for recognition, hours and a wage.`,
+    choices:[
+      {label:"Negotiate — recognize them and settle",cost:{gold:-24,stability:+6},fac:{workers:+18,merchants:-14},
+        effect:S=>{S.civil=S.civil||{};S.civil.unions=clamp((S.civil.unions||45)+16);bumpPressure(S,"radical",-18);},
+        chron:S=>`the great strike ended in recognition and a settlement.`,
+        out:"You meet them, which is the concession that matters; the hours and the wage are details. The mills restart. Something has changed permanently and everyone in the room knows it."},
+      {label:"Break it with troops",cost:{gold:-16,arms:-4,stability:-12},fac:{workers:-24,officers:+5,merchants:+10},
+        effect:S=>{bumpPressure(S,"radical",22);bumpPressure(S,"military",8);S.legitPen=(S.legitPen||0)+8;},
+        chron:S=>`the great strike was broken by soldiers, and there were deaths in the streets of the manufacturing towns.`,
+        out:"The works restart under guard. There is a number of dead and it will be printed, sung, and taught to children who were not born yet."},
+      {label:"Wait them out — they have no savings",cost:{stability:-7},fac:{workers:-12,merchants:-6},
+        effect:S=>{S.development=clamp(S.development-4);bumpPressure(S,"radical",10);},
+        chron:S=>`the government sat out the great strike; hunger ended it after eleven weeks.`,
+        out:"Eleven weeks. They go back on the old terms, having learned exactly what they are worth to you and exactly how long they can last. Both numbers are now known to both sides."}]},
+  { id:"crash",w:1.1,freq:5,when:S=>eraIdx(S)>=5&&(S._creditBonus||0)>=100,title:"The Crash",
+    text:S=>`Railway shares, mostly. They went up for six years for no reason anybody could name and they have come down in nine days for the same reason. Banks that were sound on Monday are queues by Thursday, and a great many respectable people are ruined.`,
+    choices:[
+      {label:"Guarantee the deposits and let the speculators fail",cost:{gold:-34,stability:+4},fac:{merchants:-6,peasantry:+8},
+        effect:S=>{S._creditBonus=Math.max(0,(S._creditBonus||0)-40);},
+        chron:S=>`the state guaranteed the deposits through the crash and let the speculators go under.`,
+        out:"Small savers are made whole and the men who caused it are not. It is expensive, popular, and sets a precedent that will be invoked at you forever."},
+      {label:"Rescue the great houses of finance",cost:{gold:-40},fac:{merchants:+12,workers:-14,peasantry:-12},
+        effect:S=>{bumpPressure(S,"radical",14);S.legitPen=(S.legitPen||0)+6;},
+        chron:S=>`the state rescued the banking houses, and the country noticed who had been rescued.`,
+        out:"Credit is restored within a season. So is the conviction, in every town in the realm, that there is one law for the exchange and another for everybody else."},
+      {label:"Let it burn out",cost:{stability:-14},fac:{merchants:-18},
+        effect:S=>{S.development=clamp(S.development-8);S._creditBonus=Math.max(0,(S._creditBonus||0)-90);},
+        chron:S=>`the crash was left to run its course, and took a decade of growth with it.`,
+        out:"Three hundred firms, eleven banks, and a great deal of the confidence that made the last twenty years possible. It will come back. It will take longer than you have."}]},
+  { id:"cholera",w:1.1,freq:5,when:S=>eraIdx(S)>=5&&!ownsAdv(S,"sanitary"),title:"Cholera in the New Towns",
+    text:S=>`It comes up through the courts and cellars of the manufacturing districts, where twelve thousand people share a water supply nobody planned. The physicians argue about miasma. The undertakers do not have time to argue.`,
+    choices:[
+      {label:"Build sewers and a clean supply, whatever it costs",cost:{gold:-38,stability:+6},fac:{workers:+12,peasantry:+10},
+        effect:S=>{S._upkeepAge=(S._upkeepAge||0)+4;S._mortalityEase=(S._mortalityEase||0)+0.2;S.development=clamp(S.development+5);},
+        chron:S=>`cholera in the new towns was answered with sewers and clean water at the public charge.`,
+        out:"Enormous, filthy, unglamorous work that will be finished long after you are gone. It is the single most useful thing this government will ever do."},
+      {label:"Quarantine the districts",cost:{gold:-14,stability:-6},fac:{workers:-12,merchants:-6},
+        effect:S=>{S.development=clamp(S.development-4);bumpPressure(S,"radical",12);},
+        chron:S=>`the afflicted districts were cordoned off and left to it.`,
+        out:"Soldiers at the end of every street and food passed across a line. It works, in the sense that it does not spread. The people inside are quite clear about what has been done to them."}]},
   { id:"chamber_hunger",w:0.9,freq:5,when:S=>!S.pm&&S.gov.institutions.length>0&&S.gov.institutions[0].power<30,
     title:S=>`The ${S.gov.institutions[0].name} Demands More`,
     text:S=>`A chamber, once summoned, does not stay grateful. The ${S.gov.institutions[0].name} has drawn up a formal address: it holds too little power for the burdens laid upon it, and it wants more. The address is polite. The mood behind it is not.`,
@@ -1802,7 +1893,7 @@ const EVENTS=[
       {label:"Lay down the crown in favour of the heir",cost:{stability:+8},
         effect:S=>{S._abdicate=true;},
         chron:S=>`${styled(S,S.monarch)}, unloved and unlamented, laid down the crown in favour of the heir.`,
-        out:"The instrument is signed without ceremony. By year's end the crown sits on a fresher head — and the realm exhales."},
+        out:"The instrument is signed without ceremony — and the sovereign remains sovereign until the season closes, because the machinery of a realm cannot be stopped mid-turn. By year's end the crown sits on a fresher head, and the realm exhales."},
       {label:"Refuse — the crown is not the mob's to demand",cost:{stability:-6},
         effect:S=>{S.legitPen=(S.legitPen||0)+4;},
         chron:S=>`the Crown refused the realm's demand for abdication, and wore its unpopularity like armour.`,
@@ -2044,7 +2135,35 @@ const ROLES=[
   {id:"chancellor",name:"Chancellor of the Exchequer",dom:"fiscal",fac:{merchants:+6},
    hint:"the purse entrusted to kin rather than to strangers",gives:"Merchants warm · the treasury runs a little better"}
 ];
-function roleHolder(S,id){ return S.family.find(p=>p.alive&&p.job===id)||null; }
+function roleHolder(S,id){
+  const royal=S.family.find(p=>p.alive&&p.job===id);
+  if(royal)return royal;
+  return (S.court||[]).find(p=>p.alive&&p.job===id)||null;
+}
+function hasCouncil(S){ return !!S.gov.cabinet; }
+/* the officers of state: mostly not royal at all */
+const COURT_KINDS=[
+  {id:"noble",label:"of an old family",bloc:"aristocracy"},
+  {id:"cleric",label:"a churchman",bloc:"clergy"},
+  {id:"soldier",label:"a soldier risen from the ranks",bloc:"officers"},
+  {id:"lawyer",label:"a lawyer with no name to speak of",bloc:"merchants"},
+  {id:"merchant",label:"a man of business",bloc:"merchants"},
+  {id:"steward",label:"a steward out of the provinces",bloc:"provinces"}
+];
+function newCourtier(S){
+  const k=pick(COURT_KINDS.filter(x=>S.facs[x.bloc]&&S.facs[x.bloc].present)||COURT_KINDS);
+  const kk=k||COURT_KINDS[0];
+  const g=(eraIdx(S)>=4&&chance(0.35))?"f":"m";
+  return {id:PID++,name:nameFor(g,usedNames(S))+" "+pick(surnamePool()),gender:g,age:36+rand(24),
+    kind:kk.id,label:kk.label,bloc:kk.bloc,trait:rollTrait(),alive:true,job:null};
+}
+function courtiers(S){ if(!S.court)S.court=[]; while(S.court.length<4)S.court.push(newCourtier(S)); return S.court; }
+function tickCourt(S,span){
+  if(!S.court)return;
+  S.court.forEach(c=>{ c.age+=span;
+    if(c.alive&&chance(traitMortality(c,mortalityChance(c.age,span)))){ c.alive=false; c.job=null; } });
+  S.court=S.court.filter(c=>c.alive);
+}
 function roleEligible(S){
   const h=heirOf(S);
   return S.family.filter(p=>p.alive&&p.age>=16&&!p.job&&p.rel!=="former"&&(!h||p.id!==h.id)
@@ -2068,7 +2187,8 @@ function matchCandidates(S,p){
 }
 function renderDynCourt(){
   const h=heirOf(S);
-  const unwed=S.family.filter(p=>p.alive&&p.age>=16&&!p.spouseId&&["child","sibling","uncle","nephew","grandchild"].includes(p.rel));
+  const unwed=S.family.filter(p=>p.alive&&p.age>=16&&p.age<=55&&!p.spouseId&&!p.outHouse
+    &&!["spouse","dowager","childspouse","inlaw","former"].includes(p.rel));
   const elig=roleEligible(S);
   let opts="";
   if(!spouseOf(S)&&S.monarch.age>=16&&!S.regency)
@@ -2078,7 +2198,7 @@ function renderDynCourt(){
   opts+=unwed.map(p=>`<button class="choice dyn-match" data-dcwed="${p.id}"><div class="cl"><span class="mk">♥</span><span class="lbl">Arrange a match for ${esc(p.name)}, the sovereign's ${esc(relLabel(p))} (${p.age})</span></div>
       <div class="ch">of age, unwed, and watched by every house with a daughter or a son</div>
       <div class="costs"><span class="chip">three suits are pressed</span></div></button>`).join("");
-  opts+=ROLES.filter(r=>!roleHolder(S,r.id)&&elig.length).map(r=>`<button class="choice dyn-role" data-dcrole="${r.id}"><div class="cl"><span class="mk">✦</span><span class="lbl">Appoint a ${esc(r.name)}</span></div>
+  if(hasCouncil(S))opts+=ROLES.filter(r=>!roleHolder(S,r.id)).map(r=>`<button class="choice dyn-role" data-dcrole="${r.id}"><div class="cl"><span class="mk">✦</span><span class="lbl">Appoint a ${esc(r.name)}</span></div>
       <div class="ch">${esc(r.hint)}</div>
       <div class="costs">${Object.keys(r.fac).map(k=>`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`).join("")}<span class="chip">${esc(r.gives)}</span></div></button>`).join("");
   const desig=designatable(S).filter(p=>!h||p.id!==h.id);
@@ -2133,20 +2253,46 @@ function doMatch(i){
 }
 function renderRolePick(){
   const r=ROLES.find(x=>x.id===S._rolePick); if(!r){toDynCourt();return "";}
+  const free=courtiers(S).filter(c=>!c.job);
   const elig=roleEligible(S).sort((a,b)=>b.age-a.age);
   return `<div class="eyebrow">An office of the realm</div><div class="sit-title">${esc(r.name)}</div>
-    <div class="sit-text">${esc(r.hint)}. Whom shall the sovereign send?</div>
+    <div class="sit-text">${esc(r.hint)}. The council has names to put forward — and the sovereign may always prefer their own blood, which is a different kind of decision.</div>
+    <div class="subhead">Servants of the state</div>
+    <div class="choices">${free.map(c=>{const t=traitShown(c);
+      return `<button class="choice dyn-role" data-rolewho="c${c.id}">
+        <div class="cl"><span class="mk">›</span><span class="lbl">${esc(c.name)}, ${c.age} — ${esc(c.label)}</span></div>
+        <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):"an unremarkable record and no enemies"}</div>
+        <div class="costs">${Object.keys(r.fac).map(k=>`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`).join("")}<span class="chip fac up">${esc(S.facs[c.bloc].name)} +4</span><span class="chip up">no claim on the throne</span></div></button>`;}).join("")}</div>
+    ${elig.length?`<div class="subhead">Of the blood</div>
     <div class="choices">${elig.map(p=>{const t=traitShown(p);
-      return `<button class="choice dyn-role" data-rolewho="${p.id}">
-        <div class="cl"><span class="mk">›</span><span class="lbl">${esc(p.name)}, the sovereign's ${esc(relLabel(p))} (${p.age})</span></div>
+      return `<button class="choice dyn-desig" data-rolewho="${p.id}">
+        <div class="cl"><span class="mk">✦</span><span class="lbl">${esc(p.name)}, the sovereign's ${esc(relLabel(p))} (${p.age})</span></div>
         <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):"nothing much is known of them yet"}</div>
-        <div class="costs">${Object.keys(r.fac).map(k=>`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`).join("")}</div></button>`;}).join("")}
-      <button class="choice" data-dc="back"><div class="cl"><span class="mk">›</span><span class="lbl">Leave the office vacant</span></div></button></div>`;
+        <div class="costs">${Object.keys(r.fac).map(k=>`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`).join("")}<span class="chip up">the dynasty is pleased</span><span class="chip down">a relative with a power base</span></div></button>`;}).join("")}</div>`:""}
+    <div class="choices"><button class="choice" data-dc="back"><div class="cl"><span class="mk">›</span><span class="lbl">Leave the office vacant</span></div></button></div>`;
 }
 function doRole(id,who){
-  const r=ROLES.find(x=>x.id===id); const elig=roleEligible(S);
-  if(!r||!elig.length){toDynCourt();return;}
-  const p=(who!=null?elig.find(x=>x.id===who):null)||elig.sort((a,b)=>b.age-a.age)[0];
+  const r=ROLES.find(x=>x.id===id);
+  if(!r){toDynCourt();return;}
+  const isCourt=(typeof who==="string"&&who.charAt(0)==="c");
+  const wid=isCourt?parseInt(who.slice(1),10):who;
+  const elig=roleEligible(S);
+  const p=isCourt?courtiers(S).find(x=>x.id===wid)
+    :((wid!=null?elig.find(x=>x.id===wid):null)||elig.sort((a,b)=>b.age-a.age)[0]);
+  if(!p){toDynCourt();return;}
+  if(isCourt){
+    p.job=r.id;
+    const fx=Object.assign({},r.fac); fx[p.bloc]=(fx[p.bloc]||0)+4;
+    let extra="";
+    if(r.id==="governor"){
+      const target=provinces(S).filter(x=>!x.core&&!x.governor).sort((a,b)=>a.loyalty-b.loyalty)[0];
+      if(target){ target.governor=p.id; target.loyalty=clamp(target.loyalty+6);
+        extra=` ${p.name} takes ship for ${target.name} within the month.`; }
+    }
+    applyOutcome({cost:{stability:+2},fac:fx,chron:S=>`${p.name} was appointed ${r.name}.`,
+      out:`${p.name} — ${p.label} — takes up the ${r.name}.${extra} A competent servant with no blood claim and no ambition the crown need fear. This is what a council is for.`},"dyncourt");
+    render(); return;
+  }
   p.job=r.id;
   let extra="";
   if(r.id==="governor"){
@@ -2190,7 +2336,7 @@ function renderDesignate(){
 function afterDynastic(){ S.phaseDone.dynastic=true; S.result=null; endTurn(); render(); }
 
 function endTurn(){
-  const span=3+rand(3); // 3-5 years
+  const span=5; // a turn is always five years
   S.year+=span; S.turn++;
   // ages
   S.monarch.age+=span; S.family.forEach(p=>{ if(p.alive)p.age+=span; });
@@ -2217,6 +2363,7 @@ function endTurn(){
   tickPressures(S,span);
   tickPolitics(S,span);
   tickPlan(S,span);
+  tickCourt(S,span);
   if(regimeIs(S,"people")&&S.monarch&&chance(mortalityChance(S.monarch.age,span))){
     congressSuccession(S,"died in office");
   }
@@ -2405,7 +2552,13 @@ const ERAS=[
   {id:"paper",name:"Paper & Office",cost:155,
    blurb:"The state learns to see what it governs."},
   {id:"reason",name:"Reason",cost:235,
-   blurb:"Ideas become a political force in their own right."}
+   blurb:"Ideas become a political force in their own right."},
+  {id:"steam",name:"Steam",cost:340,
+   blurb:"Engines, canals and the first works that never sleep."},
+  {id:"rail",name:"Rail & Mill",cost:470,
+   blurb:"Iron, smoke, and a new estate that did not exist a lifetime ago."},
+  {id:"masses",name:"The Masses",cost:620,
+   blurb:"Literacy, organization, and a public that will no longer be governed at."}
 ];
 function eraIdx(S){ return S.eraIdx||0; }
 function eraDef(S){ return ERAS[eraIdx(S)]||ERAS[ERAS.length-1]; }
@@ -2518,6 +2671,102 @@ const ADVANCES=[
    gives:"Prestige + · every future advance costs less"}
 ];
 
+
+/* ---- VI Steam · VII Rail & Mill · VIII The Masses ---- */
+const LATE_ADVANCES=[
+  {id:"engine",era:5,found:true,name:"The Engine",dom:"fiscal",
+   blurb:"A machine that turns coal into work — tirelessly, in any weather, wherever you care to put it. Everything after this is a consequence of it.",
+   fac:{merchants:+10,aristocracy:-5},
+   effect:S=>{S.development=clamp(S.development+10);S._know.admin=(S._know.admin||0)+0.6;S._upkeepAge=(S._upkeepAge||0)+3;},
+   gives:"Development leaps · knowledge up · nothing in the later ages is reachable without it"},
+  {id:"canals",era:5,found:true,name:"The Canal Network",dom:"civil",
+   blurb:"Water carried uphill by lock and lift, and coal carried anywhere at a tenth of what it cost to cart.",
+   fac:{merchants:+8,provinces:+8},
+   effect:S=>{S.development=clamp(S.development+8);provinces(S).forEach(p=>{p.loyalty=clamp(p.loyalty+5);});S._upkeepAge=(S._upkeepAge||0)+2;},
+   gives:"Development and provincial loyalty rise · the country binds together · locks must be maintained"},
+  {id:"manufactory",era:5,name:"The Manufactory",dom:"fiscal",
+   blurb:"Work gathered under one roof, one clock and one man's eye. The village workshop cannot compete and will not survive.",
+   fac:{merchants:+12,peasantry:-9},
+   effect:S=>{S.development=clamp(S.development+7);if(S.facs.workers)S.facs.workers.strength=clamp(S.facs.workers.strength+14);},
+   gives:"Development up · merchants gain heavily · labour begins to gather where it can be counted"},
+  {id:"joint_stock",era:5,name:"The Joint-Stock Act",dom:"fiscal",
+   blurb:"Ownership divided into shares that strangers may buy, so that undertakings larger than any one fortune become possible.",
+   fac:{merchants:+10},effect:S=>{S._creditBonus=(S._creditBonus||0)+140;},
+   gives:"Credit expands enormously · great works become financeable"},
+  {id:"loom",era:5,name:"The Mechanical Loom",dom:"fiscal",
+   blurb:"Cloth made faster than hands can manage, by machines that need not be persuaded, fed, or paid what a weaver was.",
+   fac:{merchants:+9,peasantry:-12},
+   effect:S=>{S.development=clamp(S.development+6);bumpPressure(S,"radical",12);},
+   gives:"Development up · the trades that fed whole districts end · expect riots"},
+
+  {id:"furnace",era:6,found:true,name:"The Furnace Works",dom:"fiscal",
+   blurb:"Iron in quantities no age has seen, made in towns that did not exist twenty years ago, by people who have nothing to sell but the day.",
+   fac:{merchants:+10,aristocracy:-12},
+   effect:S=>{S.development=clamp(S.development+12);S._upkeepAge=(S._upkeepAge||0)+4;
+     if(S.facs.workers){S.facs.workers.present=true;
+       S.facs.workers.strength=clamp(Math.max(S.facs.workers.strength,40)+15);
+       S.facs.workers.mood=clamp(S.facs.workers.mood-10);}},
+   gives:"THE WORKERS WAKE as an estate · development leaps · the aristocracy's weight falls sharply"},
+  {id:"trunkline",era:6,found:true,name:"The Trunk Line",dom:"civil",
+   blurb:"Rails from the capital to the border, and a realm that can be crossed in a day rather than a fortnight.",
+   fac:{merchants:+8,provinces:+10,officers:+6},
+   effect:S=>{S.development=clamp(S.development+9);provinces(S).forEach(p=>{p.loyalty=clamp(p.loyalty+8);});S._upkeepAge=(S._upkeepAge||0)+5;},
+   gives:"Provinces bind to the capital · armies move · unrest answered in days · the permanent way is never cheap"},
+  {id:"levee",era:6,name:"The Levée en Masse",dom:"martial",
+   blurb:"Not an army the crown pays for but an army the nation supplies — which means the nation must be willing.",
+   fac:{officers:+9,peasantry:-7},
+   effect:S=>{S.military=clamp(S.military+16);S._armyUpkeep=Math.max(0,(S._armyUpkeep||0)-3);bumpPressure(S,"radical",8);},
+   gives:"Arms rise sharply and cost less gold · but war now needs the consent of those who fight it"},
+  {id:"telegraph",era:6,name:"The Telegraph",dom:"civil",
+   blurb:"News from the frontier in minutes. The government hears everything — and within a week, so does everyone else.",
+   fac:{merchants:+6,provinces:+5},
+   effect:S=>{S._know.admin=(S._know.admin||0)+0.7;S._opinionOn=true;S.stability=clamp(S.stability+5);},
+   gives:"Unrest caught early · knowledge up · dissent travels just as fast"},
+  {id:"schools",era:6,name:"The Public Schools",dom:"civil",
+   blurb:"Every child taught letters at the state's charge — an investment that returns in thirty years and cannot be recalled.",
+   fac:{peasantry:+8,clergy:-6},
+   effect:S=>{S._know.press=(S._know.press||0)+1.6;S._upkeepAge=(S._upkeepAge||0)+4;
+     S.facs.peasantry.strength=clamp(S.facs.peasantry.strength+10);
+     if(S.facs.reformers){S.facs.reformers.present=true;S.facs.reformers.strength=clamp(S.facs.reformers.strength+12);}},
+   gives:"Knowledge leaps · the common estates gain weight · a literate country is a different country"},
+  {id:"aerial",era:6,name:"The Aerial Fleet",dom:"martial",
+   blurb:"Airships. Ruinously expensive, magnificently useless in bad weather, and utterly terrifying to anyone who has not got them.",
+   fac:{officers:+8,merchants:-6},
+   effect:S=>{S.military=clamp(S.military+10);S._armyUpkeep=(S._armyUpkeep||0)+5;S._aerial=true;},
+   gives:"Arms and prestige rise · heavy standing cost · the realm's path diverges from the ordinary one"},
+
+  {id:"franchise_mass",era:7,found:true,name:"The Mass Franchise",dom:"civil",
+   blurb:"The vote given to men who own nothing, on the theory that they live here too. It is the last argument the old order loses.",
+   fac:{peasantry:+12,workers:+12,aristocracy:-12},
+   effect:S=>{S.facs.peasantry.strength=clamp(S.facs.peasantry.strength+12);
+     if(S.facs.workers)S.facs.workers.strength=clamp(S.facs.workers.strength+12);
+     S.legitPen=Math.max(0,(S.legitPen||0)-12);bumpPressure(S,"constitutional",16);},
+   gives:"The common estates become the electorate · legitimacy improves · absolutism becomes untenable"},
+  {id:"combinations",era:7,found:true,name:"The Combinations Act",dom:"civil",
+   blurb:"Working men permitted to organize, bargain and withhold their labour — legalized because the alternative had become worse.",
+   fac:{workers:+16,merchants:-10},
+   effect:S=>{if(S.facs.workers){S.facs.workers.present=true;S.facs.workers.strength=clamp(S.facs.workers.strength+16);}
+     S.civil=S.civil||{};S.civil.unions=clamp((S.civil.unions||45)+18);},
+   gives:"Labour becomes an organized power · strikes replace riots"},
+  {id:"penny_press",era:7,name:"The Penny Press",dom:"civil",
+   blurb:"A newspaper a working man can afford, printed in the hundreds of thousands, and read aloud to those who still cannot.",
+   fac:{merchants:+6,peasantry:+7,aristocracy:-6},
+   effect:S=>{S._know.press=(S._know.press||0)+1.2;S._opinionOn=true;
+     S.civil=S.civil||{};S.civil.press=clamp((S.civil.press||50)+12);bumpPressure(S,"constitutional",8);},
+   gives:"Public opinion becomes a daily fact · nothing can be done quietly again"},
+  {id:"sanitary",era:7,name:"The Sanitary Board",dom:"civil",
+   blurb:"Sewers, clean water and an inspectorate. Unglamorous, unloved, and it will save more lives than every physician in the realm.",
+   fac:{peasantry:+10,merchants:-4},
+   effect:S=>{S._mortalityEase=(S._mortalityEase||0)+0.3;S.development=clamp(S.development+8);S.stability=clamp(S.stability+6);S._upkeepAge=(S._upkeepAge||0)+5;},
+   gives:"Mortality falls · development and stability rise · the cities stop killing their own people"},
+  {id:"party_machine",era:7,name:"The Party Machine",dom:"crown",
+   blurb:"Organization: agents in every ward, a list of every voter, and a favour remembered on polling day.",
+   fac:{aristocracy:-5},
+   effect:S=>{S._machine=true;S.stability=clamp(S.stability+5);S.legitPen=(S.legitPen||0)+4;},
+   gives:"Elections become manageable · stability up · legitimacy quietly compromised"}
+];
+ADVANCES.push.apply(ADVANCES,LATE_ADVANCES);
+
 const WORKS=[
   {id:"scriptorium",era:0,name:"The Scriptorium",gold:10,know:0.3,fac:{clergy:+4},
    blurb:"A room of copyists in the abbey, paid by the crown. Slow, beautiful, and the only memory the realm has."},
@@ -2537,7 +2786,14 @@ const WORKS=[
   {id:"observatory",era:4,name:"The Observatory",gold:50,know:1.8,fac:{aristocracy:+4},
    blurb:"Instruments, a dome, and a salaried astronomer who will make your realm famous among people who matter to nobody."},
   {id:"botanical",era:4,name:"The Botanical Garden",gold:44,know:1.45,fac:{merchants:+4,peasantry:+3},
-   blurb:"Living specimens from every coast your ships have touched, catalogued and cross-bred."}
+   blurb:"Living specimens from every coast your ships have touched, catalogued and cross-bred."},
+  {id:"polytechnic",era:5,name:"The Polytechnic",gold:66,know:2.4,fac:{merchants:+6},
+   blurb:"Engineers taught engineering rather than Latin. The men who will build the next age are in this building now."},
+  {id:"mechanics",era:6,name:"The Mechanics' Institute",gold:54,know:2.0,fac:{merchants:+4},
+   blurb:"Evening classes for working men, funded by employers who have not entirely thought it through.",
+   effect:S=>{if(S.facs.workers)S.facs.workers.strength=clamp(S.facs.workers.strength+6);}},
+  {id:"board_school",era:7,name:"The Board Schools",gold:72,know:3.2,fac:{peasantry:+7,clergy:-4},
+   blurb:"Elementary education, compulsory and free, in every parish that will take a building."}
 ];
 
 function ownsAdv(S,id){ return (S.advances||[]).includes(id); }
@@ -3428,7 +3684,7 @@ function transitionReady(S){
     const target=REGIME_OF_PRESSURE[p.id];
     if(target===cur)return;
     const v=pressureOf(S,p.id);
-    if(v>=80&&(!best||v>best.v))best={id:p.id,target,v};
+    if(v>=68&&(!best||v>best.v))best={id:p.id,target,v};
   });
   if(!best)return null;
   /* the radical road is era-gated: before the press and the mills, a rising
@@ -3726,15 +3982,17 @@ function render(){
         <div class="bx"><span class="bk">Net / turn</span><span class="bv ${netCls}">${net>=0?"+":"−"}${Math.abs(net)}</span></div>
         <div class="grow"></div><span class="taxpill">Tax: ${TAX_TIERS[S.taxRate].label}</span>
       </div>
-      <div class="budgetbreak">${budgetBreakdown(S)}</div>
+      <div class="bkline"><button class="bktog" id="bkTog">${(S.ui&&S.ui.budgetOpen)?"hide the reckoning ▴":"how is this figured? ▾"}</button></div>
+      ${(S.ui&&S.ui.budgetOpen)?`<div class="budgetbreak">${budgetBreakdown(S)}</div>`:""}
       <div class="kbox"><span class="kk">Knowledge</span><span class="kv">${S.knowledge.toFixed(1)} <small style="color:var(--dim);font-size:10px">+${knowledgeIncome(S).toFixed(2)}/yr</small></span></div>
       <div class="legit-src" style="margin:7px 0 0">${legitSources(S)}</div>
       ${juntaPanel(S)}
       ${mandatePanel(S)}
       ${planPanel(S)}
+
+      <div class="facs"><div class="gt">The Powers of the Realm <span style="color:var(--dim);letter-spacing:.04em">— number = influence, bar = mood</span></div>${facHtml}</div>
       ${pressurePanel(S)}
       ${provincePanel()}
-      <div class="facs"><div class="gt">The Powers of the Realm <span style="color:var(--dim);letter-spacing:.04em">— number = influence, bar = mood</span></div>${facHtml}</div>
     </aside>
     <section class="console">
       ${phaseStrip()}
@@ -4262,6 +4520,7 @@ function wire(){
   document.querySelectorAll("[data-civilact]").forEach(b=>b.onclick=()=>doCivil(b.dataset.civilact));
   document.querySelectorAll("[data-fed]").forEach(b=>b.onclick=()=>doFederal());
   document.querySelectorAll("[data-amend]").forEach(b=>b.onclick=()=>doAmend(b.dataset.amend));
+  const bt=document.getElementById("bkTog"); if(bt)bt.onclick=()=>{S.ui=S.ui||{};S.ui.budgetOpen=!S.ui.budgetOpen;render();};
   const rg=document.getElementById("repGo"); if(rg)rg.onclick=()=>{S._repResult=null;toDynCourt();};
   document.querySelectorAll("[data-dom]").forEach(b=>b.onclick=()=>{S.ui=S.ui||{};S.ui.shut=S.ui.shut||{};const d=b.dataset.dom;S.ui.shut[d]=!S.ui.shut[d];render();});
   document.querySelectorAll("[data-match]").forEach(b=>b.onclick=()=>doMatch(+b.dataset.match));
