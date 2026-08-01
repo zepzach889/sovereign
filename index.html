@@ -220,6 +220,12 @@
   .person.mon{border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:4px}
   .person.mon .pr{color:var(--brass)}
   .person .wed{font-size:10px;color:#8f9aa4;margin-left:6px}
+  .press{margin-top:11px;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .prow{display:flex;justify-content:space-between;font-size:12px;color:#c3ccd4;padding:2px 0}
+  .prow .pw{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--dim)}
+  .prow.warn .pw{color:var(--brass)}
+  .prow.crit .pw{color:var(--crisis)}
+  .press .pnote{font-size:10.5px;color:var(--dim);line-height:1.5;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);font-style:italic}
   .provs{margin-top:11px}
   .prov{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:#c3ccd4;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)}
   .prov small{color:var(--dim);font-size:10px}
@@ -422,7 +428,9 @@ const TITLE_FORMS={
   "Prince":{m:"Prince",f:"Princess"}, "Basileus":{m:"Basileus",f:"Basilissa"},
   "Despot":{m:"Despot",f:"Despoina"}, "High King":{m:"High King",f:"High Queen"},
   "Jarl":{m:"Jarl",f:"Jarla"}, "Raja":{m:"Raja",f:"Rani"},
-  "Maharaja":{m:"Maharaja",f:"Maharani"}, "Samrat":{m:"Samrat",f:"Samragni"}
+  "Maharaja":{m:"Maharaja",f:"Maharani"}, "Samrat":{m:"Samrat",f:"Samragni"},
+  "Marshal":{m:"Marshal",f:"Marshal"}, "Chairman":{m:"Chairman",f:"Chairwoman"},
+  "President":{m:"President",f:"President"}
 };
 function titleFor(S,g){ const t=TITLE_FORMS[S.gov.crown.titleBase]||TITLE_FORMS["King"]; return g==="f"?t.f:t.m; }
 function usedNames(S){ const u=new Set(); (S.lineage||[]).forEach(m=>u.add(m.name)); (S.family||[]).forEach(p=>u.add(p.name)); if(S.monarch)u.add(S.monarch.name); return u; }
@@ -452,7 +460,8 @@ function newFactions(){
     reformers:{name:"Reformers",strength:0,mood:50,present:false},
   };
 }
-const composition={ nobility:["aristocracy","clergy"], commons:["merchants","peasantry"], broad:["merchants","peasantry","provinces"] };
+const composition={ nobility:["aristocracy","clergy"], commons:["merchants","peasantry"], broad:["merchants","peasantry","provinces"],
+  national:["aristocracy","clergy","merchants","peasantry","provinces","officers","workers","reformers"] };
 function compMood(S,comp){ const ks=composition[comp]||["aristocracy"]; let s=0; ks.forEach(k=>s+=S.facs[k].mood); return s/ks.length; }
 
 /* ---------- power & consent ---------- */
@@ -491,6 +500,7 @@ const BLOC_DESCS={
 };
 function costMod(S,id){
   let m=1;
+  if(S.rep&&S.rep.friction)m*=S.rep.friction;   /* governing without consent is expensive */
   if(S._costMod)m*=S._costMod;
   if(S.monarch&&S.monarch.trait==="shrewd")m*=0.9;
   if(S.gov.cabinet)m*=0.9;
@@ -508,16 +518,22 @@ function adjCost(S,a){
   return c;
 }
 function maybeTransform(S){
+  if(!isMonarchy(S))return false;   /* only a crown can be reduced to a ministry */
   if(!S.pm&&!S._pmPending&&S.gov.institutions.length&&S.gov.crown.power<50) S._pmPending=true;
 }
 function runElection(){
   const set=new Set(); S.gov.institutions.forEach(i=>(composition[i.composition]||[]).forEach(k=>set.add(k)));
   if(!set.size)set.add("aristocracy");
-  const standings=[...set].map(k=>({k,name:S.facs[k].name,score:Math.round(S.facs[k].mood*0.6+S.facs[k].strength*0.4+rand(18))}));
+  const live=[...set].filter(k=>S.facs[k]&&S.facs[k].present);
+  const use=live.length?live:[...set];
+  const standings=use.map(k=>({k,name:S.facs[k].name,score:Math.round(S.facs[k].mood*0.6+S.facs[k].strength*0.4+rand(18))}));
   standings.sort((a,b)=>b.score-a.score);
   return {standings,winner:standings[0].k};
 }
 function regimeLabel(S){
+  if(regimeIs(S,"junta"))return "Provisional Military Government";
+  if(regimeIs(S,"republic"))return (S.rep&&S.rep.entrench>1)?"Republic (in name)":"Republic";
+  if(regimeIs(S,"people"))return "People's Republic";
   const cp=S.gov.institutions.reduce((a,i)=>a+i.power,0);
   if(S.gov.crown.selection!=="hereditary") return "Republic";
   if(S.gov.charter) return cp>=45?"Parliamentary Monarchy":"Constitutional Monarchy";
@@ -831,6 +847,99 @@ function provinceLabel(l){
 }
 
 /* =====================================================================
+   THE FOUR PRESSURES
+   Every regime carries all four. They are the weather behind every
+   transition in the game — a realm drifts toward the arrangement whose
+   pressure is rising, and the player can watch it happen.
+   ===================================================================== */
+const PRESSURES=[
+  {id:"military",name:"The Barracks",toward:"military government",
+   blurb:"officers who have been asked to solve too many problems"},
+  {id:"radical",name:"The Streets",toward:"a people's republic",
+   blurb:"workers and reformers with nothing left to lose"},
+  {id:"constitutional",name:"The Chambers",toward:"a republic",
+   blurb:"an educated public that wants the crown bounded or gone"},
+  {id:"restorationist",name:"The Old Order",toward:"a crown",
+   blurb:"the great houses, the church, and whoever waits in exile"}
+];
+/* the instantaneous reading, 0-100, from the state of the realm */
+function bumpPressure(S,id,n){ S.pBump=S.pBump||{}; S.pBump[id]=Math.min(45,(S.pBump[id]||0)+n); }
+function pressureNow(S,id){
+  const f=S.facs, legit=legitimacy(S);
+  const bump=(S.pBump&&S.pBump[id])||0;
+  const base=pressureBase(S,id);
+  return clamp(base+bump);
+}
+function pressureBase(S,id){
+  const f=S.facs, legit=legitimacy(S);
+  if(id==="military"){
+    return clamp( (S._militaryLeaned||0)*3
+      + Math.max(0,S.military-45)*0.5
+      + (S._armyUpkeep||0)*1.2
+      + Math.max(0,50-legit)*0.35
+      + (f.officers.mood<40?12:0) );
+  }
+  if(id==="radical"){
+    const w=f.workers||{mood:50,strength:0,present:false};
+    const r=f.reformers||{mood:50,strength:0,present:false};
+    return clamp( (w.present?Math.max(0,55-w.mood)*0.55+w.strength*0.25:0)
+      + (r.present?Math.max(0,55-r.mood)*0.4+r.strength*0.2:0)
+      + Math.max(0,45-f.peasantry.mood)*0.25
+      + Math.max(0,40-S.stability)*0.3 );
+  }
+  if(id==="constitutional"){
+    const r=f.reformers||{mood:50,strength:0,present:false};
+    return clamp( f.merchants.strength*0.28
+      + (r.present?r.strength*0.3:0)
+      + (S._pressOn?10:0) + (S._opinionOn?10:0)
+      + eraIdx(S)*4
+      + Math.max(0,45-legit)*0.3 );
+  }
+  if(id==="restorationist"){
+    return clamp( (f.aristocracy.mood>55?12:0)
+      + f.aristocracy.strength*0.22 + f.clergy.strength*0.18
+      + ((S.exiles&&S.exiles.alive)?20:0)
+      + (S._martyr?25:0)
+      + Math.max(0,40-S.stability)*0.2 );
+  }
+  return 0;
+}
+/* pressures have memory: they build and ease rather than jumping about */
+function tickPressures(S,span){
+  S.pressure=S.pressure||{};
+  /* a shock fades, but not before it has been felt */
+  if(S.pBump)for(const k in S.pBump)S.pBump[k]=Math.max(0,S.pBump[k]-span*0.6);
+  PRESSURES.forEach(p=>{
+    const now=pressureNow(S,p.id);
+    const held=S.pressure[p.id]||now;
+    const rate=(now>held)?0.16:0.11;
+    S.pressure[p.id]=Math.round((held+(now-held)*rate*span)*10)/10;
+  });
+}
+function pressureOf(S,id){ return (S.pressure&&S.pressure[id])||0; }
+function leadingPressure(S){
+  let best=null;
+  PRESSURES.forEach(p=>{ const v=pressureOf(S,p.id); if(!best||v>best.v)best={def:p,v}; });
+  return best;
+}
+function pressureWord(v){
+  if(v>=78)return "at breaking point"; if(v>=62)return "dangerous";
+  if(v>=46)return "building"; if(v>=30)return "murmuring"; return "quiet";
+}
+/* the sidebar reading — deliberately impressionistic, not a progress bar */
+function pressurePanel(S){
+  const lead=leadingPressure(S);
+  if(!lead||lead.v<30)return "";
+  return `<div class="press"><div class="gt">The Drift of the Realm</div>
+    ${PRESSURES.filter(p=>pressureOf(S,p.id)>=30).sort((a,b)=>pressureOf(S,b.id)-pressureOf(S,a.id)).map(p=>{
+      const v=pressureOf(S,p.id);
+      const cls=v>=78?"crit":v>=62?"warn":"";
+      return `<div class="prow ${cls}"><span class="pn">${esc(p.name)}</span><span class="pw">${pressureWord(v)}</span></div>`;
+    }).join("")}
+    <div class="pnote">${esc(lead.def.blurb)} — the realm leans toward ${esc(lead.def.toward)}.</div></div>`;
+}
+
+/* =====================================================================
    STANDING ACTIONS (Court phase)
    ===================================================================== */
 const ACTIONS=[
@@ -936,6 +1045,79 @@ const ACTIONS=[
       effect:S2=>{S2._abdicate=true;},
       chron:S2=>`${styled(S2,S2.monarch)} laid down the crown in favour of the heir, and the realm changed hands without a funeral.`,
       out:"The instrument is signed in front of witnesses and the thing is done. There is no cortege, no interregnum, no scramble — just a younger head under the same crown, and a court that had not expected to be surprised."})},
+  { id:"martial_law",label:"Extend martial law",cool:2,dom:"crown",
+    hint:"curfews, tribunals and the suspension of what remains of the ordinary courts",
+    gain:"+8 Stability now, and a colder country",
+    cost:{gold:-12,stability:+8},fac:{officers:+5,merchants:-7,peasantry:-8},
+    requires:S=>regimeIs(S,"junta"),
+    chron:S=>`martial law was extended across ${S.nation} for a further term.`,
+    out:["Order, of a kind that can be measured. The streets are safe and empty and nobody writes anything down."]},
+  { id:"purge_officers",label:"Purge the officer corps",cool:3,dom:"crown",
+    hint:"the men who made you can unmake you — retire them, or worse",
+    gain:"the barracks quieten sharply",
+    cost:{gold:-16,stability:-5},fac:{officers:-10},
+    requires:S=>regimeIs(S,"junta"),
+    effect:S=>{S.pressure=S.pressure||{};S.pressure.military=Math.max(0,(S.pressure.military||0)-22);
+      S.military=clamp(S.military-8);S._costMod=(S._costMod||1)*1.05;S.junta.purges=(S.junta.purges||0)+1;},
+    chron:S=>`the government purged its own officer corps.`,
+    out:["Lists are drawn up by men who were on other lists last year. The army is safer and markedly worse — and every order you give from now on costs a little more to get carried out."]},
+  { id:"plebiscite",label:"Hold a plebiscite",cool:4,dom:"crown",
+    hint:"one question, phrased by you, answered by everyone",
+    gain:"Legitimacy improves — on paper",
+    cost:{gold:-20},fac:{peasantry:+4,merchants:-3},
+    requires:S=>regimeIs(S,"junta"),
+    effect:S=>{S.legitPen=Math.max(0,(S.legitPen||0)-9);S.junta.years=Math.max(0,S.junta.years-4);},
+    chron:S=>`a plebiscite returned an overwhelming endorsement of the provisional government.`,
+    out:["Ninety-four per cent, on a turnout of ninety-one. Nobody believes it and everybody cites it, which is most of what legitimacy is."]},
+  { id:"promise_elections",label:"Promise elections",cool:6,dom:"crown",
+    hint:"a date, announced publicly — which buys quiet now and a reckoning later",
+    gain:"+10 Stability, and the question stops being asked for a while",
+    cost:{stability:+10},fac:{merchants:+8,peasantry:+7,officers:-6},
+    requires:S=>regimeIs(S,"junta")&&!S.junta.promised,
+    effect:S=>{S.junta.promised=true;},
+    chron:S=>`the provisional government announced a date for elections.`,
+    out:["A date in three years' time, printed in every gazette. The country exhales. Three years is a long time, and dates can be moved — but a promise in print is a debt, and this one has witnesses."]},
+  { id:"seizures",label:"Seize the property of the disloyal",cool:3,dom:"fiscal",
+    hint:"estates, warehouses and bank accounts belonging to the wrong people",
+    gain:"+34 gold, immediately",
+    cost:{gold:+34,stability:-7},fac:{aristocracy:-14,merchants:-12,peasantry:+4},
+    requires:S=>regimeIs(S,"junta"),
+    chron:S=>`the provisional government financed itself by seizure.`,
+    out:["The lists are long and the criteria are flexible. It solves this year's problem entirely and makes an enemy of everyone who owns anything."]},
+  { id:"postpone_vote",label:"Postpone the election",cool:2,dom:"crown",
+    hint:"for the duration of the emergency — and the emergency is whatever you say it is",
+    gain:"the programme continues; you keep your face and your mandate",
+    cost:{stability:-10},requires:S=>regimeIs(S,"republic"),
+    effect:S=>{S.rep.entrench=(S.rep.entrench||0)+1;S.rep.nextVote=S.turn+S.rep.termTurns;
+      S.rep.friction=(S.rep.friction||1)*1.12;S.legitPen=(S.legitPen||0)+14;
+      bumpPressure(S,"radical",8);
+      bumpPressure(S,"military",6);},
+    fac:{merchants:-9,reformers:-12,peasantry:-7},
+    chron:S=>`the government postponed the election, citing the emergency.`,
+    out:["The proclamation is careful, legal and entirely unconvincing. You keep the office. From tomorrow every order you give will need a little more persuasion behind it, and it will cost you."]},
+  { id:"narrow_franchise",label:"Narrow who may vote",cool:3,dom:"crown",
+    hint:"a property qualification, a literacy test, a register that loses certain names",
+    gain:"the next election is far easier to win",
+    cost:{stability:-8},requires:S=>regimeIs(S,"republic"),
+    effect:S=>{S.rep.entrench=(S.rep.entrench||0)+1;S.rep.friction=(S.rep.friction||1)*1.09;
+      S.legitPen=(S.legitPen||0)+10;
+      S.facs.peasantry.strength=clamp(S.facs.peasantry.strength-10);
+      if(S.facs.workers)S.facs.workers.strength=clamp(S.facs.workers.strength-8);
+      bumpPressure(S,"radical",12);},
+    fac:{aristocracy:+7,merchants:+4,peasantry:-14,workers:-12},
+    chron:S=>`the franchise was narrowed, and a great many people discovered they were no longer part of the country.`,
+    out:["Done by statute, in daylight, with reasons given. The electorate is now a shape you like. Everyone outside it has noticed, and they have not gone anywhere."]},
+  { id:"prosecute_opposition",label:"Prosecute the leader of the opposition",cool:4,dom:"crown",
+    hint:"there is always something, and if there isn't, there is always someone willing to say there was",
+    gain:"the opposition loses its head and its nerve",
+    cost:{gold:-14,stability:-9},requires:S=>regimeIs(S,"republic"),
+    effect:S=>{S.rep.entrench=(S.rep.entrench||0)+1;S.rep.friction=(S.rep.friction||1)*1.14;
+      S.legitPen=(S.legitPen||0)+16;
+      bumpPressure(S,"radical",10);
+      bumpPressure(S,"military",8);},
+    fac:{reformers:-16,merchants:-10,officers:+4},
+    chron:S=>`the leader of the opposition was tried and convicted.`,
+    out:["The charges are real enough to print and thin enough that everyone understands. He goes to prison and becomes considerably more popular there than he ever was in the chamber."]},
   { id:"legislate",label:"Pass a program of legislation",
     hint:"the ministry's agenda, put to the chamber — statecraft by majority",
     gain:"if the benches hold: +6 Stability, the realm develops, your bloc rallies",
@@ -1014,7 +1196,10 @@ function actView(S,a){
   Object.keys(map).map(Number).sort((x,y)=>x-y).forEach(k=>{ if(ei>=k) form=map[k]; });
   return form?Object.assign({},a,form):a;
 }
-function availableActions(S){ return ACTIONS.filter(a=>a.requires(S)&&!onCooldown(S,a.id)&&costMod(S,a.id)!==0); }
+const MONARCH_ONLY=["patronize","festival","privileges","appoint","tax_request","abdicate","dissolve","refuse_ministry"];
+const REGIME_ONLY={martial_law:"junta",purge_officers:"junta",plebiscite:"junta",promise_elections:"junta",seizures:"junta",
+  postpone_vote:"republic",narrow_franchise:"republic",prosecute_opposition:"republic"};
+function availableActions(S){ return ACTIONS.filter(a=>(!REGIME_ONLY[a.id]||regimeIs(S,REGIME_ONLY[a.id]))&&(regimeIs(S,"monarchy")||!MONARCH_ONLY.includes(a.id))&&a.requires(S)&&!onCooldown(S,a.id)&&costMod(S,a.id)!==0); }
 function onCooldown(S,id){ return (S.cooldowns[id]||0)>S.turn; }
 function affordable(S,a){ const g=(adjCost(S,a).gold)||0; if(g>=0)return true; return (S.treasury+g)>=-OVERDRAFT; }
 
@@ -1490,6 +1675,71 @@ const EVENTS=[
         effect:S=>{doReaction(S);},
         chron:S=>`the Crown submitted to the reaction; the ancient constitution was restored and the throne changed hands.`,
         out:"You sign what is put in front of you. The chambers lose what they were given, the statutes are repealed, and the crown passes to someone the great houses find more restful. You are still the will behind the throne — it is simply a different throne now."}]},
+  /* ================= RUPTURE: THE COUP ================= */
+  { id:"barracks_warning",w:1.6,freq:3,when:S=>isMonarchy(S)&&pressureOf(S,"military")>=48&&pressureOf(S,"military")<74,
+    title:"The Officers Decline Their Invitations",
+    text:S=>`Three generals were expected at court and none came. A regiment moved garrison without an order anyone will admit to writing. At an officer's funeral last month there were more colonels present than the war office knew were in the country, and they stayed talking a long while after the burial.`,
+    choices:[
+      {label:"Pay the army what it is owed, in full and publicly",cost:{gold:-32,stability:+4},fac:{officers:+14},
+        effect:S=>{S.pressure.military=Math.max(0,(S.pressure.military||0)-22);S._militaryLeaned=Math.max(0,(S._militaryLeaned||0)-4);},
+        chron:S=>`the Crown paid the army in full and in public, and the whispering in the barracks stopped for a while.`,
+        out:"Chests carried through the streets under escort, deliberately visible. Soldiers who are paid do not need to be watched — which is fortunate, because you cannot watch them."},
+      {label:"Break up the cliques — post the ringleaders apart",cost:{gold:-14,stability:-4},fac:{officers:-9},
+        effect:S=>{S.pressure.military=Math.max(0,(S.pressure.military||0)-14);S.military=clamp(S.military-5);},
+        chron:S=>`the Crown scattered the leading officers to distant commands.`,
+        out:"Six colonels posted to six frontiers. It works — they cannot conspire by letter as well as they could over dinner — and the army is a little worse at its job for it."},
+      {label:"Give them what they want — a freer hand and more of it",cost:{stability:+3},fac:{officers:+12,merchants:-6,peasantry:-6},
+        effect:S=>{S._armyUpkeep=(S._armyUpkeep||0)+4;S.military=clamp(S.military+8);S.pressure.military=Math.max(0,(S.pressure.military||0)-8);},
+        chron:S=>`the Crown answered the army's discontent by giving it more of everything.`,
+        out:"More men, more money, more latitude. The generals are delighted. You have quieted them by making them larger, which is a solution with a shape to it."},
+      {label:"Take no notice",cost:{stability:-2},
+        effect:S=>{S.pressure.military=Math.min(100,(S.pressure.military||0)+7);},
+        chron:S=>`the Crown took no notice of the officers' quiet meetings.`,
+        out:"Nothing happens. The meetings continue, and the attendance improves."}]},
+  { id:"coup",w:12,freq:1,when:S=>isMonarchy(S)&&pressureOf(S,"military")>=74,
+    title:"The Regiments Do Not Disperse",
+    text:S=>`The parade was to have ended at noon. At noon the regiments were still standing in the square, and by two o'clock they had been joined by two more. There is no proclamation, no manifesto, no demand — simply an army that has stopped going home, and a palace that has noticed how few men are guarding it.`,
+    choices:[
+      {label:"Stand on the crown's authority and order them to disperse",
+        resolve:S=>{
+          if(S.facs.officers.mood>=52&&legitimacy(S)>=45){
+            return {cost:{stability:-8},fac:{officers:+6},
+              effect:S2=>{S2.pressure.military=Math.max(0,(S2.pressure.military||0)-38);S2._militaryLeaned=0;},
+              chron:S2=>`the Crown faced down the standing regiments, and they went home.`,
+              out:"You go out to them yourself, without guards, and give the order in a voice that expects to be obeyed. It is obeyed. It will not be twice.",fortune:"good"};}
+          const gen=newGeneral(S);
+          return {effect:S2=>{S2._pendingCoup=gen;},
+            chron:S2=>`the Crown ordered the regiments to disperse and was ignored; the army took the state.`,
+            out:`The order is read out. Nothing happens. A colonel steps forward, apologises with real embarrassment, and explains that ${gen.name} would like to speak with you.`,fortune:"bad"};}},
+      {label:"Buy the generals off before the day ends",cost:{gold:-46},
+        resolve:S=>{
+          if(S.treasury<40) return {cost:{stability:-6},effect:S2=>{S2._pendingCoup=newGeneral(S2);},
+            chron:S2=>`the Crown tried to buy the generals and could not afford them.`,
+            out:"The offer is made and the sum is heard, and there is a pause that goes on slightly too long. Then a very junior officer laughs.",fortune:"bad"};
+          return {cost:{gold:-46,stability:-5},fac:{officers:+10,merchants:-8},
+            effect:S2=>{S2.pressure.military=Math.max(0,(S2.pressure.military||0)-30);},
+            chron:S2=>`the Crown bought the loyalty of its generals on the day of the parade, at enormous cost.`,
+            out:"Estates, arrears, three dukedoms and a great deal of cash. The regiments march home. You have bought the army from itself with its own back pay — and taught it exactly what it is worth."};}},
+      {label:"Let it come",
+        resolve:S=>({effect:S2=>{S2._pendingCoup=newGeneral(S2);},
+          chron:S2=>`the Crown made no answer to the standing regiments, and the army took the state.`,
+          out:"You do nothing, which is at least dignified. By evening the palace guard has been relieved by men who were not sent for.",fortune:"bad"})}]},
+  { id:"jacquerie",w:8,freq:2,when:S=>{const t=transitionReady(S);return !!(t&&t.jacquerie);},
+    title:"The Country Rises",
+    text:S=>`It begins in three districts at once, which means it did not begin by accident. Manor houses burning, rent rolls burning, a bailiff hanged from his own gate. They have no programme and no leaders anybody can negotiate with — this is an age before either. They simply want it to stop.`,
+    choices:[
+      {label:"Put it down",cost:{gold:-18,arms:-6,stability:+6},fac:{peasantry:-16,workers:-12,aristocracy:+9},
+        effect:S=>{bumpPressure(S,"radical",-30);provinces(S).forEach(p=>{if(!p.core)p.loyalty=clamp(p.loyalty-5);});},
+        chron:S=>`the rising of the country was put down, and the assizes were busy for a year afterward.`,
+        out:"Cavalry against billhooks; it takes a season and it is never in doubt. The rising is broken, the ringleaders are hanged in their own villages, and nothing whatever has been settled."},
+      {label:"Buy it off — remit the dues and hear the grievances",cost:{gold:-34,stability:+4},fac:{peasantry:+14,aristocracy:-10},
+        effect:S=>{bumpPressure(S,"radical",-38);provinces(S).forEach(p=>{p.loyalty=clamp(p.loyalty+8);});},
+        chron:S=>`the Crown bought off the rising of the country with remissions and a hearing.`,
+        out:"Arrears forgiven, three of the worst stewards dismissed, a commission that will report in due course. They go home. It is expensive and it works, and the great houses will not forgive it."},
+      {label:"Do nothing and let it burn out",cost:{stability:-14},fac:{peasantry:-8,aristocracy:-12,provinces:-10},
+        effect:S=>{S.development=clamp(S.development-5);bumpPressure(S,"radical",-12);},
+        chron:S=>`the rising of the country burned itself out over three years, taking a good deal of the country with it.`,
+        out:"It exhausts itself eventually, the way fires do. What is left is a countryside that has learned it can burn things, and a nobility that has learned the crown will not protect them."}]},
   { id:"chamber_hunger",w:0.9,freq:5,when:S=>!S.pm&&S.gov.institutions.length>0&&S.gov.institutions[0].power<30,
     title:S=>`The ${S.gov.institutions[0].name} Demands More`,
     text:S=>`A chamber, once summoned, does not stay grateful. The ${S.gov.institutions[0].name} has drawn up a formal address: it holds too little power for the burdens laid upon it, and it wants more. The address is polite. The mood behind it is not.`,
@@ -1657,7 +1907,7 @@ function newGame(cfg){
     reforms:[], cooldowns:{}, eventLast:{}, seenMilestones:[],
     legitPen:0, notices:[], pm:null, nextElection:0, _elections:0,
     ui:{chronOpen:false}, _usedCands:[], ancestors:[],
-    eraIdx:0, knowledge:0, advances:[], works:[], workCount:{}, provinces:[], lostProvinces:[], _know:{}, _advDiscount:1, _newActs:[], _prevActs:[],
+    regime:"monarchy", junta:null, exiles:null, pressure:{}, _militaryLeaned:0, eraIdx:0, knowledge:0, advances:[], works:[], workCount:{}, provinces:[], lostProvinces:[], _know:{}, _advDiscount:1, _newActs:[], _prevActs:[],
     _successions:0,_sameHouseSucc:0,_houseBreaks:0,_regenciesEnded:0,_femaleReigns:0,_reforms:0,_events:0,
     chronicle:[], phase:"court", phaseDone:{event:false,court:false,advance:false,dynastic:false},
     tab:"govern", currentEvent:null, result:null, pending:null, openReform:null, _reformPower:null,_reformLaw:null,
@@ -1695,6 +1945,10 @@ function beginTurn(first){
   S.phaseDone={event:false,court:false,advance:false,dynastic:false};
   S.currentEvent=null; S.result=null; S.openReform=null; S.pending=null; S.dyn=null;
   S.tab="govern";
+  const trans=transitionReady(S);
+  if(trans&&!trans.jacquerie&&!S._pendingCoup){
+    S._transition=trans; S.phase="transition"; return;
+  }
   if(S._regentPick&&!S.regency){ S.phase="regentpick"; return; }
   ensureRegent();
   if(S.notices&&S.notices.length){ S.phase="tidings"; return; }
@@ -1745,11 +1999,15 @@ function routeNext(nx){
   else if(nx==="dynastic"){afterCourt();}
   else if(nx==="advance"){afterAdvance();}
   else if(nx==="dyncourt"){toDynCourt();}
+  else if(nx==="convention"){toConvention();}
+  else if(nx==="congress"){toCongress();}
+  else if(nx==="terror"){S.phase="terror";render();}
   else if(nx==="endturn"){toDynCourt();}
   else if(nx==="fresh"){beginTurn(false);render();}
   else {render();}
 }
 function continueFlow(){
+  if(S._pendingCoup){ S.phase="housefate"; S.result=null; render(); return; }
   const nx=S.result&&S.result.next; S.result=null;
   if(S._forcedChamber){ S._afterName=nx; S.phase="chname"; render(); return; }
   if(S._pmPending&&!S.pm){ S._pmPending=false; S._afterName=nx; S.phase="pmname"; render(); return; }
@@ -1764,6 +2022,12 @@ function afterAdvance(){
   S.phaseDone.advance=true; S.result=null; toDynastic();
 }
 function toDynastic(){
+  if(regimeIs(S,"junta")){ S.phase="juntaexit"; render(); return; }
+  if(regimeIs(S,"republic")&&S.rep&&S.turn>=S.rep.nextVote){
+    S._repResult=repElection(S); S.phase="repvote"; render(); return;
+  }
+  if(regimeIs(S,"republic")){ toConvention(); return; }
+  if(regimeIs(S,"people")){ toCongress(); return; }
   const beat=dynasticBeat();
   if(beat){ S.dyn=beat; S.phase="dynastic"; render(); return; }
   toDynCourt();
@@ -1950,6 +2214,26 @@ function endTurn(){
   const t=TAX_TIERS[S.taxRate]; S.stability=clamp(S.stability+t.stab);
   for(const k in (t.fac||{})){ S.facs[k].mood=clamp(S.facs[k].mood+t.fac[k]); }
   tickProvinces(S,span);
+  tickPressures(S,span);
+  tickPolitics(S,span);
+  tickPlan(S,span);
+  if(regimeIs(S,"people")&&S.monarch&&chance(mortalityChance(S.monarch.age,span))){
+    congressSuccession(S,"died in office");
+  }
+  if(regimeIs(S,"junta")&&S.junta){
+    S.junta.years+=span;
+    if(juntaPressure(S)>55)S.stability=clamp(S.stability-2);
+    if(juntaPressure(S)>75&&chance(0.18)){
+      S.junta.counter=(S.junta.counter||0)+1;
+      const g=newGeneral(S);
+      S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, ${S.junta.name} was removed by his own staff and ${g.name} took over the provisional government.`});
+      S.notices.push(`${S.junta.name} has been removed by the officers who made him. ${g.name} now governs.`);
+      S.junta.name=g.name; S.monarch={id:PID++,name:g.name,gender:g.gender,age:g.age,house:"the Army",
+        regnal:1,alive:true,parents:null,spouseId:null,born:S.year-g.age,trait:g.trait,reignStart:S.year};
+      S.legitPen=(S.legitPen||0)+8; S.stability=clamp(S.stability-8);
+    }
+  }
+  S._militaryLeaned=Math.max(0,(S._militaryLeaned||0)-span*0.12);
   /* rupture weather accumulates in years, and drains when things improve */
   const deep=S.treasury<-(90+(S._creditBonus||0)*0.4);
   S._debtYears = deep ? (S._debtYears||0)+span : Math.max(0,(S._debtYears||0)-span);
@@ -2463,6 +2747,799 @@ function doReaction(S){
 }
 
 /* =====================================================================
+   THE COUP AND THE JUNTA
+   The first non-monarchical regime. The head of state object is reused —
+   the general simply occupies it — so every existing screen keeps working.
+   A junta is explicitly provisional: a clock runs, and it must resolve.
+   ===================================================================== */
+function regimeIs(S,r){ return (S.regime||"monarchy")===r; }
+function isMonarchy(S){ return regimeIs(S,"monarchy"); }
+
+/* ---------- the fall of the house ---------- */
+function fleeOdds(S){
+  let p=0.32;
+  if(S.treasury>60)p+=0.18; else if(S.treasury>20)p+=0.08;
+  const loyal=provinces(S).filter(x=>x.loyalty>=55).length;
+  p+=Math.min(0.22,loyal*0.08);
+  if(S.stability>40)p+=0.08;
+  return Math.min(0.9,p);
+}
+function exileHouse(S,caught){
+  const living=(S.family||[]).filter(p=>p.alive&&!p.outHouse);
+  if(caught){
+    living.forEach(p=>{p.alive=false;p.diedTurn=S.turn;});
+    if(S.monarch)S.monarch.alive=false;
+    S._martyr=true; S.exiles=null;
+    return;
+  }
+  S.exiles={alive:living.length>0,house:S.house,year:S.year,
+    members:living.map(p=>({id:p.id,name:p.name,gender:p.gender,age:p.age,rel:p.rel}))};
+  living.forEach(p=>{p.outHouse=true;});
+}
+function renounceHouse(S){
+  (S.family||[]).forEach(p=>{p.outHouse=true;});
+  S.exiles={alive:false,renounced:true,house:S.house,year:S.year};
+}
+
+/* ---------- installing the junta ---------- */
+function installJunta(S,general){
+  S.regime="junta";
+  S.junta={name:general.name,years:0,promised:false,purges:0,counter:0};
+  S.gov.crown.titleBase="Marshal";
+  /* the officers hold what the crown held */
+  S.gov.institutions.forEach(inst=>{ powerToCrown(S,inst,inst.power); });
+  S.gov.institutions=[];
+  S.pm=null; S._minority=false; S.regency=null; S.designated=null; S.rival=null;
+  S.monarch={id:PID++,name:general.name,gender:general.gender,age:general.age,
+    house:"the Army",regnal:1,alive:true,parents:null,spouseId:null,
+    born:S.year-general.age,trait:general.trait||null,reignStart:S.year};
+  S.facs.officers.mood=clamp(S.facs.officers.mood+22);
+  S.facs.officers.strength=clamp(S.facs.officers.strength+16);
+  S.legitPen=(S.legitPen||0)+22;
+  S.stability=clamp(S.stability-16);
+  S._militaryLeaned=0;
+  S.pressure=S.pressure||{}; S.pressure.military=Math.max(0,(S.pressure.military||0)-45);
+}
+function newGeneral(S){
+  const g=chance(0.88)?"m":"f";
+  return {name:nameFor(g,usedNames(S))+" "+pick(surnamePool()),gender:g,age:44+rand(16),
+    trait:pick(["martial","shrewd","cruel","beloved"])};
+}
+/* the provisional clock — a junta must answer for itself */
+function juntaPressure(S){ return Math.min(100,(S.junta?S.junta.years:0)*4.5+(S.junta&&S.junta.promised?12:0)); }
+function juntaWord(S){
+  const y=S.junta?S.junta.years:0;
+  if(y<8)return "the emergency is young, and nobody has asked yet";
+  if(y<18)return "the word 'provisional' is being said with an edge to it";
+  if(y<30)return "nobody says 'provisional' any more; they say 'the regime'";
+  return "a generation has now been born under martial law";
+}
+function juntaPanel(S){
+  if(!regimeIs(S,"junta"))return "";
+  return `<div class="press"><div class="gt">The Provisional Government</div>
+    <div class="prow ${juntaPressure(S)>60?"crit":juntaPressure(S)>35?"warn":""}">
+      <span class="pn">Year ${S.junta.years} of the emergency</span>
+      <span class="pw">${S.junta.promised?"elections promised":"no settlement"}</span></div>
+    <div class="pnote">${esc(juntaWord(S))}</div></div>`;
+}
+/* ---------- the exits ---------- */
+function juntaExits(S){
+  const out=[];
+  const ex=S.exiles&&S.exiles.alive;
+  out.push({id:"crown_general",label:`Crown ${esc(S.junta.name)} and found a dynasty`,
+    note:"the oldest trick there is — a general who becomes a king, and whose grandchildren will be told it was always so",
+    chips:[["down","Legitimacy suffers for a generation"],["up","the emergency ends"],["fac up","Officers approve"]]});
+  if(ex)out.push({id:"restore_house",label:`Recall the House of ${esc(S.exiles.house)} from exile`,
+    note:"the old blood brought home to legitimize what the army did — they will not be grateful forever",
+    chips:[["up","Legitimacy restored"],["up","the emergency ends"],["fac up","Aristocracy, Clergy"]]});
+  if(S.junta.promised||eraIdx(S)>=3)out.push({id:"republic",label:"Hold the elections and stand down",
+    note:S.junta.promised?"the date was printed; keeping it is the one thing that would surprise everybody"
+      :"no crown at all — let the country choose its own government and see what it does",
+    chips:[["up","Legitimacy substantially restored"],["up","the emergency ends"],["fac down","Officers"],["chip","the army returns to barracks it may not stay in"]]});
+  if(pressureOf(S,"radical")>=45)out.push({id:"peoples",label:"Hand the state to the workers' councils",
+    note:"the soldiers' committees and the workers' councils have been meeting together — join them rather than shoot them",
+    chips:[["down","the old orders are abolished"],["up","the emergency ends"],["fac up","Workers"],["down","Legitimacy abroad and at home"]]});
+  out.push({id:"new_house",label:"Raise a house of the realm to the throne",
+    note:"a great family with no part in the coup, chosen precisely because it is uncontroversial",
+    chips:[["up","Legitimacy partly restored"],["fac up","Aristocracy"],["down","Officers grumble"]]});
+  return out;
+}
+
+/* ---------- the fate of the fallen house ---------- */
+function renderHouseFate(){
+  const g=S._pendingCoup;
+  const odds=Math.round(fleeOdds(S)*100);
+  const loyal=provinces(S).filter(x=>x.loyalty>=55).length;
+  return `<div class="eyebrow">The palace is surrounded</div><div class="sit-title">The House of ${esc(S.house)}</div>
+    <div class="sit-text">${esc(g.name)} has the capital and the treasury will be his by morning. What remains to decide is what becomes of the family — and there are perhaps two hours in which to decide it.</div>
+    <div class="choices">
+      <button class="choice" data-fate="flee"><div class="cl"><span class="mk">I</span><span class="lbl">Flee — get them out ahead of the people's guard</span></div>
+        <div class="ch">bribes at the gates, a loyal province to cross, a coast at the end of it${loyal?` — ${loyal} province${loyal>1?"s":""} would still shelter them`:" — no province would shelter them now"}</div>
+        <div class="costs"><span class="chip">roughly ${odds} in 100</span><span class="chip up">a house in exile, and a claim that lives</span><span class="chip down">if taken on the road: executed</span></div></button>
+      <button class="choice" data-fate="renounce"><div class="cl"><span class="mk">II</span><span class="lbl">Surrender, and renounce the claim entirely</span></div>
+        <div class="ch">a signed abdication for the whole line in exchange for their lives</div>
+        <div class="costs"><span class="chip up">they live</span><span class="chip">a pension and a small house somewhere</span><span class="chip down">no restoration — the claim is given up</span></div></button>
+      <button class="choice" data-fate="stand"><div class="cl"><span class="mk">III</span><span class="lbl">Stand. A sovereign does not run from their own capital</span></div>
+        <div class="ch">the family is taken in the palace and tried within the month</div>
+        <div class="costs"><span class="chip down">the house is executed</span><span class="chip up">a martyred crown poisons whatever replaces it</span></div></button>
+    </div>`;
+}
+function doHouseFate(kind){
+  const g=S._pendingCoup; S._pendingCoup=null;
+  const house=S.house;
+  let line="", out="";
+  if(kind==="flee"){
+    const made=chance(fleeOdds(S));
+    exileHouse(S,!made);
+    line=made?`the royal family fled the capital by night and reached the coast; the House of ${house} went into exile with its claim intact.`
+             :`the royal family was taken on the road within sight of the sea, and the House of ${house} ended against a wall.`;
+    out=made?`Carriages at three in the morning, a bribed gate, and a fishing boat that asked no questions. They are alive, they are abroad, and somewhere in another kingdom a child is being taught what they are owed.`
+            :`They very nearly made it. A cavalry picket on the coast road, an officer who recognised a face from a coin, and it was over by the following week. The new regime did not want martyrs and has been given a family of them.`;
+  } else if(kind==="renounce"){
+    renounceHouse(S);
+    line=`the royal family surrendered and renounced its claim for all its line, and was permitted to live.`;
+    out=`A signed instrument, witnessed, renouncing everything for themselves and their descendants forever. They are given a pension and a house in a small town. It is an unheroic end, and every one of them is alive to see the next century.`;
+  } else {
+    exileHouse(S,true);
+    line=`the sovereign refused to leave the capital; the House of ${house} was taken in the palace and executed within the month.`;
+    out=`They come for them at dawn and there is no resistance and no flight. The trial is short and the sentence is not in doubt. Whatever is built on this ground will be built on that morning, and everyone who builds it knows it.`;
+  }
+  S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, ${line}`});
+  installJunta(S,g);
+  S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, ${S.junta.name} assumed the government of ${S.nation} in the name of the emergency. No date was given for its ending.`});
+  S.result={out:out+`\n\nAnd you open your eyes behind the general's. The palace is the same. The people in it are entirely new.`,fortune:"bad",next:"fresh"};
+  S.phase="outcome"; checkMilestones(); render();
+}
+/* ---------- resolving the emergency ---------- */
+function renderJuntaExit(){
+  return `<div class="eyebrow">The emergency</div><div class="sit-title">A Settlement for ${esc(S.nation)}</div>
+    <div class="sit-text">${esc(juntaWord(S))}. A provisional government that does not become something else eventually becomes a joke, and then a target. The crown is the only settled form this realm has ever known — for now.</div>
+    <div class="choices">${juntaExits(S).map((e,i)=>`<button class="choice" data-jexit="${e.id}">
+      <div class="cl"><span class="mk">${["I","II","III"][i]||"•"}</span><span class="lbl">${e.label}</span></div>
+      <div class="ch">${esc(e.note)}</div>
+      <div class="costs">${e.chips.map(c=>`<span class="chip ${c[0]}">${esc(c[1])}</span>`).join("")}</div></button>`).join("")}
+      <button class="choice" data-jexit="wait"><div class="cl"><span class="mk">›</span><span class="lbl">Not yet — the emergency continues</span></div>
+        <div class="ch">every year without a settlement is a year the question gets louder</div></button></div>`;
+}
+function doJuntaExit(kind){
+  if(kind==="wait"){ S.junta.promised=false; toDynCourt(); return; }
+  const wasJunta=S.junta.name;
+  if(kind==="peoples"){
+    installPeoples(S,"junta");
+    S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, ${wasJunta} dissolved the provisional government into the workers' and soldiers' councils; ${S.nation} was proclaimed a People's Republic.`});
+    S.result={out:`The general does not resign so much as dissolve — into a committee, then a congress, then a Party. The old orders are abolished by decree within the month.\n\nYou open your eyes behind a Chairman, in a state that has no intention of ever holding an election.`,fortune:null,next:"fresh"};
+    S.junta=null; S.phase="outcome"; checkMilestones(); render(); return;
+  }
+  if(kind==="republic"){
+    S.facs.officers.mood=clamp(S.facs.officers.mood-14);
+    installRepublic(S,true);
+    S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, ${wasJunta} held the promised elections and stood down; ${S.nation} became a republic.`});
+    S.result={out:`The ballot boxes are real, the count is watched, and the general walks out of the palace to a car that is not an escort. It is the rarest ending an emergency has.\n\nYou wake behind a president — ${S.monarch.name} — with a mandate you did not write and a country that has never done this before.`,fortune:"good",next:"fresh"};
+    S.junta=null; S._militaryLeaned=0;
+    if(S.pressure)S.pressure.military=Math.max(0,(S.pressure.military||0)-25);
+    S.phase="outcome"; checkMilestones(); render(); return;
+  }
+  S.regime="monarchy"; S.gov.crown.titleBase=(culture(S).titles[0]||"King");
+  if(kind==="crown_general"){
+    const hs=housePool().filter(h=>h!==S.house); const nh=pick(hs.length?hs:["Vael"]);
+    S.house=nh; S.monarch.house=nh;
+    S.monarch.name=String(S.monarch.name).split(" ")[0];  /* a crown drops the surname */
+    S.monarch.regnal=regnalFor(S,S.monarch.name,nh);
+    S.legitPen=(S.legitPen||0)+10; S.stability=clamp(S.stability+8);
+    S.facs.officers.mood=clamp(S.facs.officers.mood+8);
+    S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, ${wasJunta} laid down the emergency and took up a crown; the House of ${nh} was proclaimed, and the army became a dynasty.`});
+    S.result={out:`The uniform is exchanged for regalia and the emergency is declared over by the man who declared it. It fools nobody now and it will fool everybody in eighty years — which is, historically, how most dynasties began.`,fortune:null,next:"fresh"};
+  } else if(kind==="restore_house"){
+    const ex=S.exiles, m=(ex.members||[]).sort((a,b)=>b.age-a.age)[0];
+    S.house=ex.house;
+    S.monarch={id:PID++,name:m?m.name:nameFor("m",usedNames(S)),gender:m?m.gender:"m",
+      age:m?Math.min(70,m.age+(S.year-ex.year)):30,house:ex.house,regnal:regnalFor(S,m?m.name:"",ex.house),
+      alive:true,parents:null,spouseId:null,born:S.year-(m?m.age:30),trait:rollTrait(),reignStart:S.year};
+    S.family.forEach(p=>{p.outHouse=true;});
+    S.exiles=null;
+    S.legitPen=Math.max(0,(S.legitPen||0)-18); S.stability=clamp(S.stability+12);
+    S.facs.aristocracy.mood=clamp(S.facs.aristocracy.mood+14);
+    S.facs.clergy.mood=clamp(S.facs.clergy.mood+12);
+    S.facs.officers.mood=clamp(S.facs.officers.mood-8);
+    S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, the House of ${ex.house} was recalled from exile and restored; the emergency was declared to have been, all along, a regency.`});
+    S.result={out:`They come back older, poorer and considerably harder than they left. The restoration is popular in a way nothing the army did ever was — and the generals who arranged it are already discovering that a restored crown remembers who put it there, and why it had to be put there at all.`,fortune:"good",next:"fresh"};
+  } else {
+    const hs=housePool().filter(h=>h!==S.house); const nh=pick(hs.length?hs:["Vael"]);
+    const g=chance(0.6)?"m":"f";
+    S.house=nh;
+    S.monarch={id:PID++,name:nameFor(g,usedNames(S)),gender:g,age:26+rand(20),house:nh,regnal:1,
+      alive:true,parents:null,spouseId:null,born:S.year-30,trait:rollTrait(),reignStart:S.year};
+    S.legitPen=Math.max(0,(S.legitPen||0)-8); S.stability=clamp(S.stability+9);
+    S.facs.aristocracy.mood=clamp(S.facs.aristocracy.mood+12);
+    S.facs.officers.mood=clamp(S.facs.officers.mood-6);
+    S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, the army handed the crown to the House of ${nh} — a family chosen for having done nothing at all — and went back to its barracks.`});
+    S.result={out:`A compromise candidate with clean hands and no opinions, which is exactly the qualification required. The generals retire covered in honours. The new crown will spend forty years quietly making sure it never needs them again.`,fortune:null,next:"fresh"};
+  }
+  S.junta=null; S._militaryLeaned=0;
+  if(S.pressure)S.pressure.military=Math.max(0,(S.pressure.military||0)-30);
+  refreshRelations(S);
+  S.phase="outcome"; checkMilestones(); render();
+}
+
+/* =====================================================================
+   THE REPUBLIC
+   Power changes hands and you do not leave — you wake behind the winner.
+   Each administration inherits a mandate it did not write, pays a price
+   for undoing its predecessors, and may refuse to go at a ruinous cost.
+   ===================================================================== */
+const MANDATES={
+  merchants:[
+    {id:"m_tax",label:"Lighten the burden on trade",check:S=>["none","light"].includes(S.taxRate)},
+    {id:"m_surplus",label:"Balance the books",check:S=>netIncome(S)>=0},
+    {id:"m_build",label:"Build what commerce needs",check:S=>S.development>=(S.rep.devAtStart+4)}],
+  peasantry:[
+    {id:"p_tax",label:"Lift the taxes off the land",check:S=>["none","light","moderate"].includes(S.taxRate)},
+    {id:"p_bread",label:"Keep the country quiet and fed",check:S=>S.stability>=55},
+    {id:"p_mood",label:"Govern for the common people",check:S=>S.facs.peasantry.mood>=55}],
+  officers:[
+    {id:"o_arms",label:"Restore the strength of the army",check:S=>S.military>=(S.rep.armsAtStart+6)},
+    {id:"o_mood",label:"Keep faith with the officer corps",check:S=>S.facs.officers.mood>=55}],
+  clergy:[
+    {id:"c_faith",label:"Honour the faith of the realm",check:S=>S.facs.clergy.mood>=58},
+    {id:"c_order",label:"Hold the realm to good order",check:S=>S.stability>=55}],
+  aristocracy:[
+    {id:"a_priv",label:"Respect the ancient privileges",check:S=>S.facs.aristocracy.mood>=55},
+    {id:"a_order",label:"Keep property safe",check:S=>S.stability>=52}],
+  provinces:[
+    {id:"v_loyal",label:"Govern the country as well as the capital",check:S=>provinceLoyaltyAvg(S)>=55},
+    {id:"v_works",label:"Carry the roads out to the provinces",check:S=>S.development>=(S.rep.devAtStart+3)}],
+  workers:[
+    {id:"w_mood",label:"Answer the demands of labour",check:S=>(S.facs.workers&&S.facs.workers.mood>=55)},
+    {id:"w_works",label:"Put the unemployed to work",check:S=>S.development>=(S.rep.devAtStart+4)}],
+  reformers:[
+    {id:"r_reform",label:"Carry a further measure of reform",check:S=>(S.reforms||[]).length>(S.rep.reformsAtStart)},
+    {id:"r_legit",label:"Govern by consent, visibly",check:S=>legitimacy(S)>=58}]
+};
+function newMandate(S,bloc){
+  const pool=(MANDATES[bloc]||MANDATES.merchants).slice();
+  const take=Math.min(pool.length,2+(chance(0.4)?1:0));
+  const out=[];
+  while(out.length<take&&pool.length){ out.push(pool.splice(rand(pool.length),1)[0]); }
+  return out.map(m=>({id:m.id,label:m.label}));
+}
+function mandateCheck(S,id){
+  for(const b in MANDATES){ const m=MANDATES[b].find(x=>x.id===id); if(m)return !!m.check(S); }
+  return false;
+}
+function repLeaderName(S){ return nameFor(chance(0.5)?"m":"f",usedNames(S))+" "+pick(surnamePool()); }
+function installRepublic(S,fromJunta){
+  /* a republic needs a legislature, or there is nobody to elect */
+  if(!S.gov.institutions.some(i=>i.composition==="national")){
+    /* reclaim before dissolving, or the hundred points leak away */
+    S.gov.institutions.forEach(inst=>{ powerToCrown(S,inst,inst.power); });
+    S.gov.institutions=[];
+    const inst={id:"assembly",name:(culture(S).inst[2]||"The National Assembly"),
+      composition:"national",power:0,rights:["tax","law","consent"]};
+    S.gov.institutions.push(inst);
+    transferPower(S,inst,Math.min(62,S.gov.crown.power));
+  }
+  const er=runElection();
+  const bloc=er?er.winner:"merchants";
+  S.regime="republic";
+  S.gov.crown.titleBase="President";
+  S.rep={bloc,term:1,termTurns:4,nextVote:S.turn+4,entrench:0,friction:1,
+    devAtStart:S.development,armsAtStart:S.military,reformsAtStart:(S.reforms||[]).length,
+    mandate:newMandate(S,bloc),kept:0,broken:0};
+  S.junta=null;
+  const g=chance(0.5)?"m":"f";
+  S.monarch={id:PID++,name:repLeaderName(S),gender:g,age:44+rand(18),house:"the Republic",
+    regnal:1,alive:true,parents:null,spouseId:null,born:S.year-50,trait:rollTrait(),reignStart:S.year};
+  S.legitPen=Math.max(0,(S.legitPen||0)-(fromJunta?20:8));
+  S.stability=clamp(S.stability+(fromJunta?10:4));
+  S.facs[bloc].mood=clamp(S.facs[bloc].mood+10);
+  seedPolitics(S);
+  refreshRelations(S);
+}
+/* ---------- the handover ---------- */
+function repElection(S){
+  const er=runElection();
+  const winner=er?er.winner:S.rep.bloc;
+  /* judge the outgoing administration against the promises it inherited */
+  let kept=0;
+  (S.rep.mandate||[]).forEach(m=>{ if(mandateCheck(S,m.id))kept++; });
+  const total=(S.rep.mandate||[]).length||1;
+  const ratio=kept/total;
+  if(ratio>=0.99){ S.stability=clamp(S.stability+7); S.legitPen=Math.max(0,(S.legitPen||0)-8); }
+  else if(ratio>=0.5){ S.stability=clamp(S.stability+2); }
+  else { S.stability=clamp(S.stability-6); S.legitPen=(S.legitPen||0)+6; S.facs[S.rep.bloc].mood=clamp(S.facs[S.rep.bloc].mood-10); }
+  const changed=winner!==S.rep.bloc;
+  const oldName=S.monarch.name, oldBloc=S.rep.bloc;
+  S.rep.bloc=winner; S.rep.term++; S.rep.nextVote=S.turn+S.rep.termTurns;
+  S.rep.devAtStart=S.development; S.rep.armsAtStart=S.military; S.rep.reformsAtStart=(S.reforms||[]).length;
+  S.rep.mandate=newMandate(S,winner);
+  if(changed){
+    const g=chance(0.5)?"m":"f";
+    S.monarch={id:PID++,name:repLeaderName(S),gender:g,age:44+rand(18),house:"the Republic",
+      regnal:1,alive:true,parents:null,spouseId:null,born:S.year-50,trait:rollTrait(),reignStart:S.year};
+    S.facs[winner].mood=clamp(S.facs[winner].mood+8);
+    S.facs[oldBloc].mood=clamp(S.facs[oldBloc].mood-5);
+  } else { S.monarch.reignStart=S.monarch.reignStart||S.year; }
+  return {kept,total,changed,winner,oldName,oldBloc};
+}
+function renderRepVote(){
+  const r=S._repResult;
+  const b=S.facs[r.winner].name;
+  return `<div class="eyebrow">The country votes</div>
+    <div class="sit-title">${r.changed?"A Change of Government":"The Government Is Returned"}</div>
+    <div class="sit-text">The outgoing administration kept ${r.kept} of ${r.total} promises it came in with. ${r.changed
+      ? `The ${esc(b)} interest has won, and ${esc(r.oldName)} has conceded. You will wake tomorrow behind ${esc(S.monarch.name)} — who spent the campaign explaining what was wrong with everything you built.`
+      : `The ${esc(b)} interest is returned to office. The programme continues, which is its own kind of danger.`}</div>
+    <div class="sit-text" style="color:var(--brass-dim)">The new administration owes the country: ${(S.rep.mandate||[]).map(m=>esc(m.label)).join(" · ")}</div>
+    <button class="cont" id="repGo">Take office →</button>`;
+}
+function mandatePanel(S){
+  if(!regimeIs(S,"republic")||!S.rep)return "";
+  const turns=Math.max(0,S.rep.nextVote-S.turn);
+  return `<div class="press"><div class="gt">The Mandate</div>
+    ${(S.rep.mandate||[]).map(m=>{const done=mandateCheck(S,m.id);
+      return `<div class="prow ${done?"":"warn"}"><span class="pn">${esc(m.label)}</span><span class="pw">${done?"kept":"outstanding"}</span></div>`;}).join("")}
+    <div class="pnote">${S.rep.entrench?`the last election was ${S.rep.entrench===1?"postponed once":"postponed "+S.rep.entrench+" times"} — `:""}${turns<=0?"the country votes this season":`${turns} turn${turns===1?"":"s"} until the country votes`}${S.rep.friction>1?` · a government governing without consent pays ${Math.round((S.rep.friction-1)*100)}% more for everything`:""}</div></div>`;
+}
+
+/* =====================================================================
+   THE CONVENTION — the republic's third phase
+   What the dynastic court was to a monarchy. Four strands at different
+   cadences: the political class (every turn), civil society (when you
+   have given it something to react to), federalism (when the country
+   is restive) and constitutional amendment (rare and heavy).
+   ===================================================================== */
+const CIVIL_BODIES=[
+  {id:"press",name:"The Press",blurb:"printers, editors and a readership that has opinions about you"},
+  {id:"unions",name:"The Combinations",blurb:"workingmen organized, which is either a partner or a threat"},
+  {id:"church",name:"The Church",blurb:"pulpits reach further than proclamations ever did"},
+  {id:"academy",name:"The Universities",blurb:"where the next generation of your opposition is currently studying"}
+];
+function civilOf(S,id){ S.civil=S.civil||{}; if(S.civil[id]==null)S.civil[id]=50; return S.civil[id]; }
+function civilWord(v){ if(v>=70)return "friendly"; if(v>=55)return "civil"; if(v>=42)return "cool"; if(v>=28)return "hostile"; return "at war with you"; }
+
+function newPolitician(S,bloc){
+  const g=chance(0.5)?"m":"f";
+  return {id:PID++,name:nameFor(g,usedNames(S))+" "+pick(surnamePool()),gender:g,age:38+rand(22),
+    bloc:bloc||pick(Object.keys(S.facs).filter(k=>S.facs[k].present)),
+    trait:rollTrait(),standing:30+rand(30),office:null};
+}
+function politicians(S){ return S.pols||[]; }
+function seedPolitics(S){
+  S.pols=[]; for(let i=0;i<5;i++)S.pols.push(newPolitician(S));
+  S.civil={press:50,unions:45,church:52,academy:50};
+}
+function tickPolitics(S,span){
+  if(!regimeIs(S,"republic"))return;
+  if(!S.pols||!S.pols.length)seedPolitics(S);
+  S.pols.forEach(p=>{ p.age+=span;
+    p.standing=clamp(p.standing+(S.facs[p.bloc]&&S.facs[p.bloc].mood>55?2:-1)+(p.office?3:0)+(rand(5)-2)); });
+  S.pols=S.pols.filter(p=>{
+    if(p.age>72&&chance(0.3*span/4)){
+      S.notices.push(`${p.name} has retired from public life.`); return false; }
+    return true; });
+  while(S.pols.length<5)S.pols.push(newPolitician(S));
+  /* civil society drifts toward how it is being treated */
+  CIVIL_BODIES.forEach(b=>{
+    let pull=0;
+    if(S.rep&&S.rep.entrench)pull-=S.rep.entrench*1.6;
+    if(b.id==="press"&&S._pressOn)pull+=0.5;
+    if(b.id==="academy")pull+=(S.works||[]).includes("university")?1:0;
+    if(b.id==="unions")pull+=(S.facs.workers&&S.facs.workers.present)?(S.facs.workers.mood>50?1:-1.5):0;
+    if(b.id==="church")pull+=(S.facs.clergy.mood>55?1:-1);
+    S.civil[b.id]=clamp(civilOf(S,b.id)+pull+(rand(3)-1));
+  });
+}
+const AMENDMENTS=[
+  {id:"terms",name:"Fix the Term of Office",cost:{stability:+4},
+   blurb:"a term written into the constitution, and a limit on how many a person may serve",
+   effect:S=>{S.rep.termTurns=Math.max(2,S.rep.termTurns-1);S.legitPen=Math.max(0,(S.legitPen||0)-8);},
+   gives:"shorter terms · legitimacy improves · harder to entrench"},
+  {id:"suffrage",name:"Extend the Suffrage",cost:{stability:-3},
+   blurb:"the vote given to those who have been paying for the state without choosing it",
+   effect:S=>{S.facs.peasantry.strength=clamp(S.facs.peasantry.strength+10);
+     if(S.facs.workers)S.facs.workers.strength=clamp(S.facs.workers.strength+10);
+     S.facs.aristocracy.mood=clamp(S.facs.aristocracy.mood-8);S.legitPen=Math.max(0,(S.legitPen||0)-10);},
+   gives:"the common estates gain weight · legitimacy improves · the old interests resent it"},
+  {id:"courts",name:"Establish Judicial Review",cost:{stability:+3},
+   blurb:"a bench that may strike down what the government does, including what you do",
+   effect:S=>{S._consentEase=true;S.legitPen=Math.max(0,(S.legitPen||0)-9);S._costMod=(S._costMod||1)*1.04;},
+   gives:"legitimacy improves · consent easier · everything you do costs a little more"},
+  {id:"federal",name:"Grant the Provinces a Federal Charter",cost:{stability:+2},
+   blurb:"the provinces given standing of their own, and governors they elect for themselves",
+   effect:S=>{S.federal=true;provinces(S).forEach(p=>{p.loyalty=clamp(p.loyalty+12);});
+     S.facs.provinces.mood=clamp(S.facs.provinces.mood+12);},
+   gives:"every province steadies · the country binds itself in · secession becomes far less likely"}
+];
+function renderConvention(){
+  const pols=politicians(S).slice().sort((a,b)=>b.standing-a.standing);
+  const rest=provinces(S).filter(p=>!p.core&&p.loyalty<45);
+  const amend=AMENDMENTS.filter(a=>!(S.amendments||[]).includes(a.id));
+  let body="";
+  body+=`<div class="subhead">The political class</div><div class="choices">${pols.map(p=>{
+    const t=traitShown(p);
+    return `<button class="choice dyn-role" data-pol="${p.id}">
+      <div class="cl"><span class="mk">${p.office?"✦":"·"}</span><span class="lbl">${esc(p.name)}, ${p.age} — ${esc(S.facs[p.bloc].name)}${p.office?` · ${esc(p.office)}`:""}</span></div>
+      <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):"an unknown quantity"} · standing ${Math.round(p.standing)}</div>
+      <div class="costs">${p.office?`<span class="chip">holds office</span>`:`<span class="chip up">give them an office</span>`}<span class="chip fac ${S.facs[p.bloc].mood>50?"up":"down"}">${esc(S.facs[p.bloc].name)}</span></div></button>`;}).join("")}</div>`;
+  body+=`<div class="subhead">Civil society</div><div class="choices">${CIVIL_BODIES.map(b=>{
+    const v=civilOf(S,b.id);
+    return `<button class="choice dyn-match" data-civil="${b.id}">
+      <div class="cl"><span class="mk">·</span><span class="lbl">${esc(b.name)} — ${civilWord(v)}</span></div>
+      <div class="ch">${esc(b.blurb)}</div>
+      <div class="costs"><span class="chip">court them, or bring them to heel</span></div></button>`;}).join("")}</div>`;
+  if(rest.length&&S.federal!==true)
+    body+=`<div class="subhead">The country</div><div class="choices">
+      <button class="choice dyn-desig" data-fed="autonomy">
+        <div class="cl"><span class="mk">›</span><span class="lbl">Grant ${esc(rest[0].name)} its own assembly</span></div>
+        <div class="ch">local government for a province that has stopped listening to the capital</div>
+        <div class="costs"><span class="chip up">+16 loyalty there</span><span class="chip down">−12 gold</span><span class="chip">the others will ask too</span></div></button></div>`;
+  if(amend.length)
+    body+=`<div class="subhead">The constitution</div><div class="choices">${amend.map(a=>`
+      <button class="choice dyn-desig" data-amend="${a.id}">
+        <div class="cl"><span class="mk">§</span><span class="lbl">${esc(a.name)}</span></div>
+        <div class="ch">${esc(a.blurb)}</div>
+        <div class="costs"><span class="chip up">${esc(a.gives)}</span></div></button>`).join("")}</div>`;
+  return `<div class="eyebrow">The convention</div><div class="sit-title">The Business of the Republic</div>
+    <div class="sit-text">Offices, opinion, the country and the constitution. As much of it as the season allows.</div>
+    ${body}
+    <div class="choices"><button class="choice" data-dc="done"><div class="cl"><span class="mk">›</span><span class="lbl">Rise for the season</span></div></button></div>`;
+}
+
+/* ---------- convention handlers ---------- */
+function doPol(id){
+  const p=politicians(S).find(x=>x.id===id); if(!p){toConvention();return;}
+  if(p.office){
+    p.office=null; p.standing=clamp(p.standing-14);
+    applyOutcome({cost:{stability:-3},fac:{[p.bloc]:-7},
+      chron:S=>`${p.name} was dismissed from the government.`,
+      out:`${p.name} clears their desk and gives an interview on the way out. A politician out of office has nothing to do but campaign, and they are rather good at it.`},"convention");
+  } else {
+    const posts=["Minister of the Interior","Minister of Finance","Minister of War","Foreign Minister","Minister of Works"];
+    const taken=politicians(S).filter(x=>x.office).map(x=>x.office);
+    const post=posts.find(x=>!taken.includes(x))||"Minister without Portfolio";
+    p.office=post; p.standing=clamp(p.standing+12);
+    applyOutcome({cost:{stability:+3},fac:{[p.bloc]:+8},
+      chron:S=>`${p.name} was appointed ${post}.`,
+      out:`${p.name} takes the ${post}. Their interest is flattered and their own standing grows — which is useful now and will be a problem in about fifteen years.`},"convention");
+  }
+  render();
+}
+function renderCivil(){
+  const b=CIVIL_BODIES.find(x=>x.id===S._civilPick); if(!b){toConvention();return "";}
+  const v=civilOf(S,b.id);
+  return `<div class="eyebrow">Civil society</div><div class="sit-title">${esc(b.name)}</div>
+    <div class="sit-text">${esc(b.blurb)}. They are currently ${civilWord(v)} toward the government.</div>
+    <div class="choices">
+      <button class="choice dyn-match" data-civilact="fund"><div class="cl"><span class="mk">I</span><span class="lbl">Fund them</span></div>
+        <div class="ch">subsidies, charters, a building with your name on it</div>
+        <div class="costs"><span class="chip down">−18 gold</span><span class="chip up">+14 goodwill</span></div></button>
+      <button class="choice dyn-match" data-civilact="license"><div class="cl"><span class="mk">II</span><span class="lbl">License them</span></div>
+        <div class="ch">permitted, registered, and required to be reasonable</div>
+        <div class="costs"><span class="chip up">+6 Stability</span><span class="chip down">−8 goodwill</span></div></button>
+      <button class="choice dyn-match" data-civilact="suppress"><div class="cl"><span class="mk">III</span><span class="lbl">Suppress them</span></div>
+        <div class="ch">closed, banned, and driven to do the same work somewhere you cannot see it</div>
+        <div class="costs"><span class="chip up">+10 Stability now</span><span class="chip down">−26 goodwill</span><span class="chip down">Legitimacy</span></div></button>
+      <button class="choice" data-dc="back"><div class="cl"><span class="mk">›</span><span class="lbl">Leave them alone</span></div></button></div>`;
+}
+function doCivil(kind){
+  const b=CIVIL_BODIES.find(x=>x.id===S._civilPick); S._civilPick=null;
+  if(!b){toConvention();return;}
+  if(kind==="fund"){ S.civil[b.id]=clamp(civilOf(S,b.id)+14);
+    applyOutcome({cost:{gold:-18},fac:b.id==="unions"?{workers:+6}:b.id==="church"?{clergy:+7}:{merchants:+4},
+      chron:S=>`the government took ${b.name.toLowerCase()} into its patronage.`,
+      out:`Money, a charter and a photograph. They are friendlier. They are not bought — nobody who matters ever quite is — but they will give you the benefit of the doubt for a while.`},"convention");
+  } else if(kind==="license"){ S.civil[b.id]=clamp(civilOf(S,b.id)-8);
+    applyOutcome({cost:{stability:+6},fac:{reformers:-5},
+      chron:S=>`${b.name} was brought under licence.`,
+      out:`Registration, conditions, an office that grants and withdraws permission. Everything continues, slightly more carefully, and everyone knows exactly what changed.`},"convention");
+  } else { S.civil[b.id]=clamp(civilOf(S,b.id)-26); S.legitPen=(S.legitPen||0)+8;
+    bumpPressure(S,"radical",9);
+    applyOutcome({cost:{stability:+10},fac:{reformers:-12,merchants:-6},
+      chron:S=>`the government suppressed ${b.name.toLowerCase()}.`,
+      out:`Presses seized, halls closed, a list of names. It works immediately and it costs you the argument permanently — whatever they were saying is now true simply because you stopped them saying it.`},"convention");
+  }
+  render();
+}
+function doFederal(){
+  const rest=provinces(S).filter(p=>!p.core&&p.loyalty<45);
+  const p=rest[0]; if(!p){toConvention();return;}
+  p.loyalty=clamp(p.loyalty+16); p.autonomy=true;
+  applyOutcome({cost:{gold:-12},fac:{provinces:+8},
+    chron:S=>`${p.name} was granted an assembly of its own.`,
+    out:`${p.name} gets a chamber, a budget and the right to argue with the capital in public. Loyalty follows almost at once — and every other province has now seen what asking loudly achieves.`},"convention");
+  render();
+}
+function doAmend(id){
+  const a=AMENDMENTS.find(x=>x.id===id); if(!a){toConvention();return;}
+  S.amendments=(S.amendments||[]).concat([a.id]);
+  S.amendYear=S.amendYear||{}; S.amendYear[a.id]=S.year;
+  a.effect(S);
+  applyOutcome({cost:a.cost,chron:S=>`the constitution of ${S.nation} was amended: ${a.name}.`,
+    out:`${a.blurb}.\n\nIt is written down, and written down is different. ${a.gives}.`},"convention");
+  render();
+}
+function toConvention(){ S.result=null; S.phase="convention"; render(); }
+
+/* =====================================================================
+   THE PEOPLE'S REPUBLIC
+   Not a republic in a red flag. The estates are reorganized: the old
+   orders are abolished into "former people", labour becomes the
+   governing estate, a Party holds the power, and the economy answers
+   to a plan rather than to a treasury.
+   ===================================================================== */
+const PLAN_PARTS=[
+  {id:"industry",name:"Heavy industry",blurb:"steel, rail, dams and the smoke that means the future"},
+  {id:"consumer",name:"Consumer goods",blurb:"bread, boots and the small comforts a country is actually made of"},
+  {id:"arms",name:"Armaments",blurb:"the state's guarantee that it will still be here next year"}
+];
+function planOf(S,id){ S.plan=S.plan||{industry:40,consumer:40,arms:20}; return S.plan[id]||0; }
+function installPeoples(S,how){
+  S.regime="people";
+  S.gov.crown.titleBase="Chairman";
+  /* the old orders are abolished, not outvoted */
+  ["aristocracy","clergy"].forEach(k=>{ if(S.facs[k]){
+    S.facs[k].present=false; S.facs[k].strength=0; S.facs[k].mood=clamp(S.facs[k].mood-30); }});
+  S.formerPeople=true;
+  if(S.facs.workers){ S.facs.workers.present=true;
+    S.facs.workers.strength=clamp(Math.max(S.facs.workers.strength,55)+10);
+    S.facs.workers.mood=clamp(S.facs.workers.mood+22); }
+  if(S.facs.peasantry)S.facs.peasantry.mood=clamp(S.facs.peasantry.mood+6);
+  if(S.facs.merchants){ S.facs.merchants.strength=clamp(S.facs.merchants.strength-30);
+    S.facs.merchants.mood=clamp(S.facs.merchants.mood-25); }
+  /* the Party holds what the state held — reclaim it first, or the
+     hundred points of power quietly leak away with the old chambers */
+  S.gov.institutions.forEach(inst=>{ powerToCrown(S,inst,inst.power); });
+  S.gov.institutions=[];
+  const party={id:"party",name:"The Party Congress",composition:"national",power:0,rights:["tax","law","consent"]};
+  S.gov.institutions.push(party);
+  transferPower(S,party,Math.min(70,S.gov.crown.power));
+  S.rep=null; S.junta=null; S.pols=null;
+  S.plan={industry:45,consumer:35,arms:20};
+  S.politburo=[]; for(let i=0;i<4;i++)S.politburo.push(newPolitburo(S));
+  S.taxRate="heavy";
+  const g=chance(0.75)?"m":"f";
+  S.monarch={id:PID++,name:nameFor(g,usedNames(S))+" "+pick(surnamePool()),gender:g,age:46+rand(16),
+    house:"the Party",regnal:1,alive:true,parents:null,spouseId:null,born:S.year-52,
+    trait:rollTrait(),reignStart:S.year};
+  S.legitPen=(S.legitPen||0)+(how==="revolution"?14:8);
+  S.stability=clamp(S.stability-12);
+  refreshRelations(S);
+}
+function newPolitburo(S){
+  const g=chance(0.7)?"m":"f";
+  return {id:PID++,name:nameFor(g,usedNames(S))+" "+pick(surnamePool()),gender:g,age:44+rand(20),
+    trait:rollTrait(),standing:35+rand(35),loyalty:40+rand(40),post:null};
+}
+function politburo(S){ return S.politburo||[]; }
+/* the plan is the economy: what you build is what you get */
+function tickPlan(S,span){
+  if(!regimeIs(S,"people"))return;
+  const p=S.plan||{industry:40,consumer:40,arms:20};
+  S.development=clamp(S.development+ (p.industry/100)*2.2*span/4);
+  const want=48, got=p.consumer;
+  S.stability=clamp(S.stability + ((got-want)/100)*16*span/4);
+  S.military=clamp(S.military + ((p.arms-18)/100)*5*span/4);
+  if(S.facs.workers)S.facs.workers.mood=clamp(S.facs.workers.mood+((got-40)/100)*7);
+  if(S.facs.peasantry)S.facs.peasantry.mood=clamp(S.facs.peasantry.mood+((got-45)/100)*5);
+  (S.politburo||[]).forEach(m=>{ m.age+=span; m.standing=clamp(m.standing+(rand(5)-2)); });
+  S.politburo=(S.politburo||[]).filter(m=>m.age<80);
+  while((S.politburo||[]).length<4)S.politburo.push(newPolitburo(S));
+}
+function planPanel(S){
+  if(!regimeIs(S,"people"))return "";
+  const p=S.plan||{};
+  return `<div class="press"><div class="gt">The Plan</div>
+    ${PLAN_PARTS.map(x=>`<div class="prow ${x.id==="consumer"&&planOf(S,x.id)<30?"crit":""}">
+      <span class="pn">${esc(x.name)}</span><span class="pw">${planOf(S,x.id)}%</span></div>`).join("")}
+    <div class="pnote">${planOf(S,"consumer")<30?"the shops are empty and everyone has noticed"
+      :planOf(S,"industry")>=55?"the furnaces run day and night"
+      :"the plan is balanced, which pleases nobody entirely"}</div></div>`;
+}
+/* succession by congress, not by ballot or blood */
+function congressSuccession(S,reason){
+  const pool=politburo(S).slice().sort((a,b)=>(b.standing+b.loyalty)-(a.standing+a.loyalty));
+  const heir=pool[0]||newPolitburo(S);
+  const old=S.monarch.name;
+  S.politburo=politburo(S).filter(m=>m.id!==heir.id);
+  S.monarch={id:PID++,name:heir.name,gender:heir.gender,age:heir.age,house:"the Party",regnal:1,
+    alive:true,parents:null,spouseId:null,born:S.year-heir.age,trait:heir.trait,reignStart:S.year};
+  while(politburo(S).length<4)S.politburo.push(newPolitburo(S));
+  S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, ${old} ${reason} and the Congress raised ${heir.name} to the chairmanship.`});
+  S.notices.push(`${old} ${reason}. ${heir.name} now leads the Party and the state.`);
+  S.legitPen=(S.legitPen||0)+5;
+  refreshRelations(S);
+}
+
+/* ---------- the congress: the people's republic's third phase ---------- */
+function renderCongress(){
+  const p=S.plan||{};
+  const pb=politburo(S).slice().sort((a,b)=>b.standing-a.standing);
+  let body=`<div class="subhead">The plan</div><div class="choices">${PLAN_PARTS.map(x=>`
+    <button class="choice ${x.id==="industry"?"dom-fiscal":x.id==="arms"?"dom-martial":"dom-civil"}" data-plan="${x.id}">
+      <div class="cl"><span class="mk">${planOf(S,x.id)}%</span><span class="lbl">Shift the plan toward ${esc(x.name.toLowerCase())}</span></div>
+      <div class="ch">${esc(x.blurb)}</div>
+      <div class="costs"><span class="chip">+10% here, taken from the rest</span></div></button>`).join("")}</div>`;
+  body+=`<div class="subhead">The Politburo</div><div class="choices">${pb.map(m=>{
+    const t=traitShown(m);
+    return `<button class="choice dyn-role" data-pb="${m.id}">
+      <div class="cl"><span class="mk">·</span><span class="lbl">${esc(m.name)}, ${m.age}</span></div>
+      <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):"a careful man with no recorded opinions"} · standing ${Math.round(m.standing)} · loyalty ${Math.round(m.loyalty)}</div>
+      <div class="costs"><span class="chip down">purge them</span><span class="chip">a rival removed is a rival replaced</span></div></button>`;}).join("")}</div>`;
+  if(S.formerPeople)body+=`<div class="subhead">The former people</div><div class="choices">
+    <button class="choice dyn-desig" data-rehab="1"><div class="cl"><span class="mk">›</span><span class="lbl">Rehabilitate the former orders</span></div>
+      <div class="ch">quietly allow the old families and the church back into ordinary life</div>
+      <div class="costs"><span class="chip up">+8 Stability</span><span class="chip up">Legitimacy improves</span><span class="chip fac down">Workers disapprove</span><span class="chip">the restorationists gain a foothold</span></div></button></div>`;
+  return `<div class="eyebrow">The Congress</div><div class="sit-title">The Business of the People's Republic</div>
+    <div class="sit-text">The plan, the Party and the question of who is to be trusted.</div>
+    ${body}
+    <div class="choices"><button class="choice" data-dc="done"><div class="cl"><span class="mk">›</span><span class="lbl">Close the session</span></div></button></div>`;
+}
+function doPlan(id){
+  const p=S.plan; const others=PLAN_PARTS.map(x=>x.id).filter(x=>x!==id);
+  let take=10, got=0;
+  others.forEach(o=>{ const t=Math.min(p[o],Math.ceil(take/others.length)); p[o]-=t; got+=t; });
+  p[id]+=got;
+  const name=PLAN_PARTS.find(x=>x.id===id).name.toLowerCase();
+  applyOutcome({chron:S=>`the plan was revised toward ${name}.`,
+    out:`The figures are redrawn and the quotas go out. ${id==="consumer"?"There will be more in the shops, and the ministries of steel will complain in writing."
+      :id==="industry"?"More furnaces, more rail, more smoke — and less of everything a household actually buys."
+      :"More rifles and more shells, and a country that will notice what it is not getting instead."}`},"congress");
+  render();
+}
+function doPurge(id){
+  const m=politburo(S).find(x=>x.id===id); if(!m){toCongress();return;}
+  S.politburo=politburo(S).filter(x=>x.id!==id);
+  S.politburo.push(newPolitburo(S));
+  S._costMod=(S._costMod||1)*1.06;
+  S.legitPen=(S.legitPen||0)+4;
+  bumpPressure(S,"military",5);
+  applyOutcome({cost:{stability:+5},fac:{workers:-4},
+    chron:S=>`${m.name} was removed from the Politburo and from the record.`,
+    out:`${m.name} does not appear in the photograph of the following year's congress, and neither does the photograph. Control improves. So does the average incompetence of everyone left, and every instruction you give from now on costs a little more to see carried out.`},"congress");
+  render();
+}
+function doRehabilitate(){
+  S.formerPeople=false;
+  ["aristocracy","clergy"].forEach(k=>{ if(S.facs[k]){ S.facs[k].present=true;
+    S.facs[k].strength=clamp(S.facs[k].strength+14); S.facs[k].mood=clamp(S.facs[k].mood+18); }});
+  S.legitPen=Math.max(0,(S.legitPen||0)-10);
+  bumpPressure(S,"restorationist",12);
+  applyOutcome({cost:{stability:+8},fac:{workers:-9},
+    chron:S=>`the former orders were quietly rehabilitated, and the churches reopened.`,
+    out:`No announcement, simply a series of small permissions that add up. The country relaxes. Somewhere a very old family begins, cautiously, to talk about the past again.`},"congress");
+  render();
+}
+function toCongress(){ S.result=null; S.phase="congress"; render(); }
+
+/* =====================================================================
+   THE TRANSITION GRAPH
+   One mechanism for every regime change after the first. Whichever
+   pressure breaks first decides what the realm becomes; how much
+   legitimacy you have left decides whether you steer it or it happens
+   to you.
+   ===================================================================== */
+const REGIME_OF_PRESSURE={military:"junta",radical:"people",constitutional:"republic",restorationist:"monarchy"};
+function regimeName(r){ return r==="junta"?"a military government":r==="people"?"a people's republic":r==="republic"?"a republic":"a crown"; }
+/* a realm cannot become what it already is */
+function transitionReady(S){
+  const cur=S.regime||"monarchy";
+  let best=null;
+  PRESSURES.forEach(p=>{
+    const target=REGIME_OF_PRESSURE[p.id];
+    if(target===cur)return;
+    const v=pressureOf(S,p.id);
+    if(v>=80&&(!best||v>best.v))best={id:p.id,target,v};
+  });
+  if(!best)return null;
+  /* the radical road is era-gated: before the press and the mills, a rising
+     is a jacquerie, not a revolution */
+  if(best.target==="people"&&eraIdx(S)<4&&!(S._pressOn&&S.facs.workers&&S.facs.workers.present))return {jacquerie:true,id:best.id};
+  return best;
+}
+function canSteer(S){ return legitimacy(S)>=42; }
+function transitionOptions(S,forced){
+  const cur=S.regime||"monarchy";
+  const out=[];
+  const add=(r)=>{ if(r!==cur&&!out.some(o=>o.r===r))out.push({r}); };
+  add(forced.target);
+  if(canSteer(S)){
+    /* a government with credit left may offer the country something else */
+    PRESSURES.forEach(p=>{ if(pressureOf(S,p.id)>=45)add(REGIME_OF_PRESSURE[p.id]); });
+  }
+  return out.slice(0,3);
+}
+function restoreMonarchy(S,how){
+  const ex=S.exiles&&S.exiles.alive?S.exiles:null;
+  const house=ex?ex.house:pick(housePool());
+  const m=ex&&(ex.members||[]).sort((a,b)=>b.age-a.age)[0];
+  S.regime="monarchy"; S.gov.crown.titleBase=(culture(S).titles[0]||"King");
+  S.rep=null; S.junta=null; S.plan=null; S.politburo=null; S.pols=null;
+  ["aristocracy","clergy"].forEach(k=>{ if(S.facs[k]&&!S.facs[k].present){
+    S.facs[k].present=true; S.facs[k].strength=clamp(S.facs[k].strength+20); }});
+  S.formerPeople=false;
+  /* dissolve the party back into the crown without losing any of the pool */
+  S.gov.institutions.filter(i=>i.id==="party").forEach(inst=>{ powerToCrown(S,inst,inst.power); });
+  S.gov.institutions=S.gov.institutions.filter(i=>i.id!=="party");
+  const g=m?m.gender:(chance(0.6)?"m":"f");
+  S.house=house;
+  S.monarch={id:PID++,name:m?m.name:nameFor(g,usedNames(S)),gender:g,
+    age:m?Math.min(70,m.age+(S.year-ex.year)):28+rand(18),house,regnal:regnalFor(S,m?m.name:"",house),
+    alive:true,parents:null,spouseId:null,born:S.year-40,trait:rollTrait(),reignStart:S.year};
+  S.exiles=null; S._martyr=false;
+  S.legitPen=Math.max(0,(S.legitPen||0)-(ex?16:8));
+  S.stability=clamp(S.stability+10);
+  bumpPressure(S,"restorationist",-40);
+  refreshRelations(S);
+  return ex?`the House of ${house} was recalled and restored`:`the crown was revived and given to the House of ${house}`;
+}
+function applyTransition(S,r){
+  const from=S.regime||"monarchy";
+  let line="";
+  if(r==="junta"){ const gen=newGeneral(S); installJunta(S,gen); line=`${gen.name} took the state in the name of the emergency`; }
+  else if(r==="republic"){ installRepublic(S,from==="junta"); line=`${S.nation} was proclaimed a republic`; }
+  else if(r==="people"){ installPeoples(S,"revolution"); line=`${S.nation} was proclaimed a People's Republic`; }
+  else { line=restoreMonarchy(S,from); }
+  if(S.pressure)PRESSURES.forEach(p=>{ if(REGIME_OF_PRESSURE[p.id]===r)S.pressure[p.id]=Math.max(0,S.pressure[p.id]-50); });
+  return line;
+}
+/* ---------- screens ---------- */
+function renderTransition(){
+  const t=S._transition, steer=canSteer(S);
+  const opts=transitionOptions(S,t);
+  const p=PRESSURES.find(x=>x.id===t.id);
+  return `<div class="eyebrow">${steer?"The government must answer":"It is decided elsewhere"}</div>
+    <div class="sit-title">${steer?"A Settlement for "+esc(S.nation):"The Government Falls"}</div>
+    <div class="sit-text">${esc(p.blurb)}, and there is no longer a government here that can say no to them. ${steer
+      ? "You still have credit enough to shape what comes next — barely, and only if you move now."
+      : "You have no credit left to spend. What follows is not yours to choose; you will simply still be here when it is over."}</div>
+    <div class="choices">${opts.map((o,i)=>`<button class="choice" data-trans="${o.r}">
+      <div class="cl"><span class="mk">${["I","II","III"][i]||"•"}</span><span class="lbl">${steer?"Give the country":"They will impose"} ${esc(regimeName(o.r))}</span></div>
+      <div class="ch">${o.r===t.target?"what the pressure of the realm is actually demanding":"not what is being demanded — but you may still be able to sell it"}</div>
+      <div class="costs">${o.r===t.target?`<span class="chip up">accepted readily</span>`:`<span class="chip down">−10 Stability · a settlement nobody asked for</span>`}</div></button>`).join("")}</div>`;
+}
+function doTransition(r){
+  const t=S._transition; S._transition=null;
+  const off=(r!==t.target);
+  const line=applyTransition(S,r);
+  if(off){ S.stability=clamp(S.stability-10); S.legitPen=(S.legitPen||0)+6; }
+  S.chronicle.push({year:S.year,cls:"rupture",text:`In ${S.year}, ${line}.`});
+  if(r==="people"){ S._terror=true; }
+  S.result={out:`The old arrangement is over, and ${line}. ${off?"It is not what was demanded, and the country can tell."
+    :"It is what the country was asking for, which makes the first years easier and the later ones no simpler."}\n\nYou are still here. You are always still here.`,
+    fortune:"bad",next:r==="people"?"terror":"fresh"};
+  S.phase="outcome"; checkMilestones(); render();
+}
+function renderTerror(){
+  return `<div class="eyebrow">The first decision</div><div class="sit-title">Terror, or Moderation</div>
+    <div class="sit-text">Every revolution reaches this within a year of winning. The enemies of the new order are real, they are numerous, and they are mostly people who were respectable last spring. What is to be done with them?</div>
+    <div class="choices">
+      <button class="choice dom-martial" data-terror="terror"><div class="cl"><span class="mk">I</span><span class="lbl">Terror — the revolution defends itself</span></div>
+        <div class="ch">tribunals, lists, and a decade in which any faction may be next, including yours</div>
+        <div class="costs"><span class="chip up">+16 Stability now</span><span class="chip down">Legitimacy</span><span class="chip down">every act costs more, permanently</span><span class="chip down">the committees will eat their own</span></div></button>
+      <button class="choice dom-civil" data-terror="moderate"><div class="cl"><span class="mk">II</span><span class="lbl">Moderation — govern, and let them live</span></div>
+        <div class="ch">the old elites survive, plotting, and the republic has a chance of lasting</div>
+        <div class="costs"><span class="chip down">−8 Stability</span><span class="chip up">Legitimacy holds</span><span class="chip up">the only road to something durable</span><span class="chip down">restorationists keep their footing</span></div></button>
+    </div>`;
+}
+function doTerror(kind){
+  S._terror=false;
+  if(kind==="terror"){
+    S._costMod=(S._costMod||1)*1.12; S.legitPen=(S.legitPen||0)+14;
+    S._terrorYears=18;
+    if(S.facs.merchants)S.facs.merchants.mood=clamp(S.facs.merchants.mood-20);
+    applyOutcome({cost:{stability:+16},fac:{workers:+10,peasantry:+6},
+      chron:S=>`the revolution turned upon its enemies, and then upon itself.`,
+      out:"Tribunals in every district and a list that grows by its own logic. Order arrives immediately. So does a decade in which nobody at the top of this state will die in bed, and every order you give costs more because the people who used to carry them out are gone."},"fresh");
+  } else {
+    bumpPressure(S,"restorationist",14);
+    applyOutcome({cost:{stability:-8},fac:{merchants:+8,workers:-6},
+      chron:S=>`the new order chose to govern rather than to purge.`,
+      out:"No tribunals. The old families keep their houses and their grievances, the churches keep their doors, and everyone waits to see whether this was mercy or weakness. It is the only version of this that has ever lasted — and it will be tested."},"fresh");
+  }
+  render();
+}
+
+/* =====================================================================
    LEGACY
    ===================================================================== */
 function legacyScore(){
@@ -2564,6 +3641,7 @@ function provincePanel(){
   </div>`;
 }
 function familyPanel(){
+  if(!isMonarchy(S))return "";
   const rows=[];
   const monRow=monarchLine(); if(monRow)rows.push(monRow); const h=heirOf(S);
   const order={spouse:0,child:1,childspouse:2,grandchild:3,sibling:4,dowager:5,uncle:6,kin:7};
@@ -2622,6 +3700,14 @@ function render(){
   else if(S.phase==="designate")main=renderDesignate();
   else if(S.phase==="rolepick")main=renderRolePick();
   else if(S.phase==="regentpick")main=renderRegentPick();
+  else if(S.phase==="housefate")main=renderHouseFate();
+  else if(S.phase==="juntaexit")main=renderJuntaExit();
+  else if(S.phase==="repvote")main=renderRepVote();
+  else if(S.phase==="convention")main=renderConvention();
+  else if(S.phase==="congress")main=renderCongress();
+  else if(S.phase==="transition")main=renderTransition();
+  else if(S.phase==="terror")main=renderTerror();
+  else if(S.phase==="civilpick")main=renderCivil();
   else if(S.phase==="ended")main=renderEnded();
   else if(S.phase==="outcome")main=renderOutcome();
 
@@ -2643,6 +3729,10 @@ function render(){
       <div class="budgetbreak">${budgetBreakdown(S)}</div>
       <div class="kbox"><span class="kk">Knowledge</span><span class="kv">${S.knowledge.toFixed(1)} <small style="color:var(--dim);font-size:10px">+${knowledgeIncome(S).toFixed(2)}/yr</small></span></div>
       <div class="legit-src" style="margin:7px 0 0">${legitSources(S)}</div>
+      ${juntaPanel(S)}
+      ${mandatePanel(S)}
+      ${planPanel(S)}
+      ${pressurePanel(S)}
       ${provincePanel()}
       <div class="facs"><div class="gt">The Powers of the Realm <span style="color:var(--dim);letter-spacing:.04em">— number = influence, bar = mood</span></div>${facHtml}</div>
     </aside>
@@ -3153,13 +4243,26 @@ function wire(){
   document.querySelectorAll("[data-dc]").forEach(b=>b.onclick=()=>{
     const v=b.dataset.dc;
     if(v==="done"){afterDynastic();}
-    else if(v==="back"){toDynCourt();}
+    else if(v==="back"){ if(regimeIs(S,"republic"))toConvention(); else if(regimeIs(S,"people"))toCongress(); else toDynCourt(); }
     else if(v==="designate"){S.phase="designate";render();}
     else if(v==="wedself"){S._matchFor="self";S._matchC=null;S.phase="match";render();}});
   document.querySelectorAll("[data-dcwed]").forEach(b=>b.onclick=()=>{S._matchFor=+b.dataset.dcwed;S._matchC=null;S.phase="match";render();});
   document.querySelectorAll("[data-dcrole]").forEach(b=>b.onclick=()=>{S._rolePick=b.dataset.dcrole;S.phase="rolepick";render();});
   document.querySelectorAll("[data-rolewho]").forEach(b=>b.onclick=()=>doRole(S._rolePick,+b.dataset.rolewho));
   document.querySelectorAll("[data-regent]").forEach(b=>b.onclick=()=>chooseRegent(+b.dataset.regent));
+  document.querySelectorAll("[data-fate]").forEach(b=>b.onclick=()=>doHouseFate(b.dataset.fate));
+  document.querySelectorAll("[data-jexit]").forEach(b=>b.onclick=()=>doJuntaExit(b.dataset.jexit));
+  document.querySelectorAll("[data-pol]").forEach(b=>b.onclick=()=>doPol(+b.dataset.pol));
+  document.querySelectorAll("[data-plan]").forEach(b=>b.onclick=()=>doPlan(b.dataset.plan));
+  document.querySelectorAll("[data-pb]").forEach(b=>b.onclick=()=>doPurge(+b.dataset.pb));
+  document.querySelectorAll("[data-rehab]").forEach(b=>b.onclick=()=>doRehabilitate());
+  document.querySelectorAll("[data-trans]").forEach(b=>b.onclick=()=>doTransition(b.dataset.trans));
+  document.querySelectorAll("[data-terror]").forEach(b=>b.onclick=()=>doTerror(b.dataset.terror));
+  document.querySelectorAll("[data-civil]").forEach(b=>b.onclick=()=>{S._civilPick=b.dataset.civil;S.phase="civilpick";render();});
+  document.querySelectorAll("[data-civilact]").forEach(b=>b.onclick=()=>doCivil(b.dataset.civilact));
+  document.querySelectorAll("[data-fed]").forEach(b=>b.onclick=()=>doFederal());
+  document.querySelectorAll("[data-amend]").forEach(b=>b.onclick=()=>doAmend(b.dataset.amend));
+  const rg=document.getElementById("repGo"); if(rg)rg.onclick=()=>{S._repResult=null;toDynCourt();};
   document.querySelectorAll("[data-dom]").forEach(b=>b.onclick=()=>{S.ui=S.ui||{};S.ui.shut=S.ui.shut||{};const d=b.dataset.dom;S.ui.shut[d]=!S.ui.shut[d];render();});
   document.querySelectorAll("[data-match]").forEach(b=>b.onclick=()=>doMatch(+b.dataset.match));
   document.querySelectorAll("[data-desig]").forEach(b=>b.onclick=()=>doWillDesignate(+b.dataset.desig));
@@ -3194,7 +4297,9 @@ function wire(){
     document.querySelectorAll("[data-name]").forEach(b=>b.onclick=()=>{document.getElementById("nameInput").value=b.dataset.name;});}
 }
 
+const MILITARY_ACTS=["suppress","fund_army","tour"];
 function doAction(id){
+  if(MILITARY_ACTS.includes(id)) S._militaryLeaned=(S._militaryLeaned||0)+1;
   const a=ACTIONS.find(x=>x.id===id);if(!a||!affordable(S,a)){render();return;}
   let o;
   if(a.resolve){o=a.resolve(S);}
