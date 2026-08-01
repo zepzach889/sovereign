@@ -237,6 +237,14 @@
   .regrow{display:flex;justify-content:space-between;font-size:12.5px;color:#b7c0c8;padding:2px 0}
   .regrow.tot{border-top:1px solid var(--line);margin-top:5px;padding-top:5px;color:var(--brass)}
   .regrow .rv{font-family:ui-monospace,Menlo,monospace;color:#a8c6de}
+  .resume{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+  .resumebtn{background:rgba(198,164,106,.09);border:1px solid var(--brass-dim);color:var(--bone);
+    border-radius:8px;padding:11px 14px;font-size:14px;text-align:left;cursor:pointer;line-height:1.35}
+  .resumebtn:hover{background:rgba(198,164,106,.16)}
+  .resumebtn small{display:block;color:var(--dim);font-size:11px;margin-top:3px}
+  .loadlink{background:transparent;border:none;color:var(--dim);font-size:12px;cursor:pointer;
+    text-decoration:underline;text-underline-offset:3px;padding:2px}
+  .loadlink:hover{color:var(--brass)}
   .bkline{margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
   .bktog{background:transparent;border:none;color:var(--dim);font-size:10.5px;letter-spacing:.04em;cursor:pointer;padding:0}
   .bktog:hover{color:var(--brass)}
@@ -2031,6 +2039,7 @@ function newGame(cfg){
    ===================================================================== */
 function beginTurn(first){
   refreshRelations(S);
+  if(typeof autosave==="function")autosave();
   for(const k in S.facs){ const f=S.facs[k]; const m=Math.round(f.mood);
     f.delta=(f.lastMood!=null)?(m-f.lastMood):0; f.lastMood=m; }
   S.phaseDone={event:false,court:false,advance:false,dynastic:false};
@@ -4882,7 +4891,16 @@ function renderSetup(){
       <div class="law-list" id="lawList">${Object.keys(LAWS).map((l,i)=>`
         <button data-law="${l}" class="${SETUP.law===l?"on":""}"><div class="ln">${LAWS[l].name}</div><div class="ld">${LAWS[l].desc}</div></button>`).join("")}</div>
       <div class="hint">Chosen at the founding; it can later be rewritten — at a price — by reform.</div></div>
-    <button class="primary" id="beginBtn" disabled>Name your nation to take the throne</button></div>`);
+    <button class="primary" id="beginBtn" disabled>Name your nation to take the throne</button>
+    ${(function(){
+      const a=(typeof autosaveInfo==="function")?autosaveInfo():null;
+      const when=a?new Date(a.at):null;
+      return `<div class="resume">
+        ${a?`<button class="resumebtn" id="resumeBtn">Resume — ${esc(a.title||a.nation)}, ${esc(String(a.year))}
+            <small>${esc(a.nation)} · last played ${when?when.toLocaleDateString():"recently"}</small></button>`:""}
+        <button class="loadlink" id="setupLoad">${a?"…or paste a save-code":"Resume a chronicle from a save-code"}</button>
+      </div>`;})()}
+    </div>`);
   app.innerHTML="";app.appendChild(el);
   const nat=document.getElementById("natInput"),house=document.getElementById("houseInput"),begin=document.getElementById("beginBtn");
   nat.value=SETUP.nation; house.value=SETUP.house;
@@ -4897,13 +4915,52 @@ function renderSetup(){
   document.querySelectorAll("[data-title]").forEach(b=>b.onclick=()=>{SETUP.title=b.dataset.title;document.querySelectorAll("[data-title]").forEach(x=>x.classList.toggle("on",x===b));});
   document.querySelectorAll("[data-law]").forEach(b=>b.onclick=()=>{SETUP.law=b.dataset.law;document.querySelectorAll("[data-law]").forEach(x=>x.classList.toggle("on",x===b));});
   begin.onclick=()=>{if(nat.value.trim()&&house.value.trim())newGame({nation:nat.value.trim(),title:SETUP.title,house:house.value.trim(),law:SETUP.law,culture:SETUP.culture});};
+  const rb=document.getElementById("resumeBtn");
+  if(rb)rb.onclick=()=>{ if(!resumeAutosave()){ rb.textContent="That chronicle could not be read"; } };
+  const sl=document.getElementById("setupLoad");
+  if(sl)sl.onclick=loadModal;
   sync();
 }
 
 /* =====================================================================
    SAVE / LOAD / SCORE / NEW
    ===================================================================== */
-const SAVE_VERSION=10;   /* bumped whenever a save needs migrating */
+const SAVE_VERSION=10;
+/* ---------- autosave ----------
+   Mobile browsers discard backgrounded tabs to reclaim memory and no page
+   can prevent it. So instead of fighting the reload, we make it harmless:
+   the reign is written to this browser's own storage every turn and again
+   the moment the page goes into the background. */
+const AUTOSAVE_KEY="sovereign.autosave";
+function autosave(){
+  try{ if(!S)return;
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+      at:Date.now(), nation:S.nation, year:S.year, regime:S.regime||"monarchy",
+      title:(S.monarch?styled(S,S.monarch):""), code:b64enc(JSON.stringify(S))
+    }));
+  }catch(e){}
+}
+function autosaveInfo(){
+  try{ const raw=localStorage.getItem(AUTOSAVE_KEY); if(!raw)return null;
+    const o=JSON.parse(raw); return (o&&o.code&&o.nation)?o:null;
+  }catch(e){ return null; }
+}
+function clearAutosave(){ try{ localStorage.removeItem(AUTOSAVE_KEY); }catch(e){} }
+function adoptState(st){
+  S=st; PID=Math.max(PID,(S.family||[]).reduce((a,p)=>Math.max(a,p.id||0),0)+1,(S.monarch&&S.monarch.id||0)+1);
+  const migrated=migrateSave(S);
+  if(S.currentEvent&&S.currentEvent.id){
+    S.currentEvent=(S.currentEvent.id==="revolt")?REVOLT:(EVENTS.find(e=>e.id===S.currentEvent.id)||null);
+    if(!S.currentEvent)S.phase="court";
+  }
+  if(S.phase==="naming"){S.phase="court";S.pending=null;}
+  return migrated;
+}
+function resumeAutosave(){
+  const info=autosaveInfo(); if(!info)return false;
+  try{ adoptState(JSON.parse(b64dec(info.code))); render(); return true; }
+  catch(e){ return false; }
+}   /* bumped whenever a save needs migrating */
 function b64enc(s){return btoa(unescape(encodeURIComponent(s)));}
 function b64dec(s){return decodeURIComponent(escape(atob(s)));}
 function openModal(inner){const bg=h(`<div class="modal-bg"><div class="modal">${inner}</div></div>`);bg.addEventListener("click",e=>{if(e.target===bg)bg.remove();});document.body.appendChild(bg);return bg;}
@@ -5012,6 +5069,9 @@ function dynModal(){
 }
 document.getElementById("btnSave").onclick=saveModal;
 document.getElementById("btnLoad").onclick=loadModal;
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden")autosave(); });
+window.addEventListener("pagehide",autosave);
+window.addEventListener("beforeunload",autosave);
 document.getElementById("btnScore").onclick=scoreModal;
 document.getElementById("btnNew").onclick=newModal;
 document.getElementById("btnChron").onclick=()=>{if(!S)return;S.ui=S.ui||{};S.ui.chronOpen=!S.ui.chronOpen;render();};
