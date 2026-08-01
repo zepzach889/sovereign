@@ -1,52 +1,94 @@
 # Sovereign
 
-A solo, offline game of governing one nation across centuries. You are not a king —
-you are the **will that governs**, the hand on the wheel while sovereigns are born,
-crowned and buried. There is no winning, only the history you leave behind.
+A solo game of governing one nation across centuries. You are not a king —
+you are the **will that governs**, the hand on the wheel while sovereigns are
+born, crowned and buried. There is no winning and no game over; only the
+history you leave behind.
 
-Play it by opening `dist/sovereign.html` in any browser. No server, no install,
-no network. Progress is kept as save codes you can copy out and paste back in.
+Play it at **[zepzach889.github.io/sovereign](https://zepzach889.github.io/sovereign)**.
 
-## Building
+## How this repo is arranged
 
-The game ships as a single self-contained HTML file, but the source lives as
-modules under `src/`.
+The game is written as 26 modules under `src/`. `index.html` is a short page
+that loads them in order — that is the real game, and it is what GitHub Pages
+serves. Edit a module, push, and the live game changes. There is no build step
+in the loop.
 
 ```
-node build.js
+index.html          the page — a stylesheet link and 26 script tags
+src/00-util.js …    the game, in order
+src/manifest.json   the running order
+src/style.css       every screen's appearance
 ```
 
-That concatenates every module listed in `src/manifest.json`, wraps it in the
-HTML shell with the stylesheet, writes `dist/sovereign.html`, and checks that the
-bundled script parses. Never edit `dist/` by hand — it is generated.
+Order matters. The modules share one namespace and run top to bottom, so a
+module that references something defined later will fail loudly on load. If you
+add a module, add it to `manifest.json` **and** to the script tags in
+`index.html`; `build.js` refuses to run if the two disagree.
 
-## Layout
-
-| file | what lives there |
+| module | what lives there |
 |---|---|
-| `src/00-util.js` | tiny helpers (`rand`, `pick`, `clamp`, `esc`) |
-| `src/01-core.js` | globals and boot-level constants |
-| `src/02-names.js` | **culture packs** — names, houses, titles, chamber names |
-| `src/03-model.js` | succession law, estates, power and consent, economy, mortality |
-| `src/04-actions.js` | the standing toolbox (Court phase) |
-| `src/05-reforms.js` | named, previewed constitutional reforms |
-| `src/06-events.js` | the recurrence-tiered event pool |
-| `src/07-milestones.js` | milestones the chronicle records |
-| `src/08-state.js` | state shape and `newGame` |
-| `src/09-turn.js` | the turn: Event → Court → Advancement → Dynasty |
-| `src/10-eras.js` | eras, advances, works, the knowledge economy |
-| `src/11-succession.js` | heirs, crises, contested successions |
-| `src/12-revolt.js` | order collapse (no game over) |
-| `src/13-legacy.js` | the historian's verdict |
-| `src/14-render.js` | every screen |
-| `src/15-handlers.js` | what the buttons do |
-| `src/16-setup.js` | the founding screen |
-| `src/17-boot.js` | save/load/score/new, and start-up |
+| `00-util` | `clamp`, `rand`, `pick`, `chance` |
+| `01-names` | culture packs — names, houses, titles, chamber names |
+| `02-model` | succession law, estates, power and consent |
+| `03-economy` | income, debt, upkeep, mortality |
+| `04-family` | the family graph — relations derived, never stored |
+| `05-provinces` | named territory, loyalty, secession |
+| `06-pressures` | military · radical · constitutional · restorationist |
+| `07-actions` | the standing toolbox (Court phase) |
+| `08-reforms` | named, previewed constitutional reforms |
+| `09-events` | the recurrence-tiered event pool |
+| `10-milestones` | what the chronicle records |
+| `11-state` | state shape and `newGame` |
+| `12-turn` | Event → Court → Advancement → the regime's third phase |
+| `13-eras` | eras, advances, works, the knowledge economy |
+| `14-succession` | heirs, crises, contested successions |
+| `15-revolt` | order collapse |
+| `16-junta` | the coup, the provisional government, its exits |
+| `17-republic` | elections, mandates, waking behind the winner |
+| `18-convention` | the republic's third phase |
+| `19-peoples` | the party, the plan, the politburo |
+| `20-transition` | the twelve edges between the four regimes |
+| `21-legacy` | the historian's verdict |
+| `22-render` | every screen |
+| `23-handlers` | what the buttons do |
+| `24-setup` | the founding screen |
+| `25-boot` | save, load, autosave, migration, start-up |
+
+## Testing
+
+```
+node harness.js              targeted tests + a 6,000-step chaos run
+node harness.js 20000        a longer run
+node harness.js 6000 7       a fixed seed, so a failure can be replayed
+```
+
+The harness loads the modules under a small fake DOM, plays the game by
+clicking randomly through whatever the current screen offers, and checks the
+invariants after every single step — chiefly that **the power pool always sums
+to exactly 100**. It also installs every regime and walks all twelve transition
+edges. The chaos run has caught bugs that every targeted test missed. Run it.
+
+## The offline build
+
+The single-file version still exists; it is just no longer in the way.
+
+```
+node build.js        ->  dist/sovereign.html
+```
+
+That binds every module and the stylesheet into one self-contained file that
+plays with no server, no install and no network — for a plane, a flash drive,
+or a classroom with hostile wifi. It also refuses to write a file with
+duplicate top-level function definitions, which is how a build once shipped
+with two `doDesignate`s where the second silently ate the first.
+
+Never edit `dist/` by hand. It is generated.
 
 ## Adding a culture pack
 
-Culture packs are cosmetic: they change what the realm *calls* things, not how it
-works. Open `src/02-names.js`, copy any entry in `CULTURES`, and change the lists.
+Culture packs are cosmetic: they change what the realm *calls* things, not how
+it works. Open `src/01-names.js`, copy any entry in `CULTURES`, change the lists.
 
 ```js
 myrealm:{ name:"My Realm", blurb:"…",
@@ -57,4 +99,4 @@ myrealm:{ name:"My Realm", blurb:"…",
   inst:["The Estates", …] }      // suggested names when a chamber is chartered
 ```
 
-Run `node build.js` and it appears on the founding screen.
+Reload the page and it appears on the founding screen.
