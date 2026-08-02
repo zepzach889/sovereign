@@ -50,7 +50,7 @@ function tickPolitics(S,span){
 const AMENDMENTS=[
   {id:"terms",name:"Fix the Term of Office",cost:{stability:+4},
    blurb:"a term written into the constitution, and a limit on how many a person may serve",
-   effect:S=>{S.rep.termTurns=Math.max(2,S.rep.termTurns-1);S.legitPen=Math.max(0,(S.legitPen||0)-8);},
+   effect:S=>{if(!S.rep)return;S.rep.termTurns=Math.max(2,S.rep.termTurns-1);S.legitPen=Math.max(0,(S.legitPen||0)-8);},
    gives:"shorter terms · legitimacy improves · harder to entrench"},
   {id:"suffrage",name:"Extend the Suffrage",cost:{stability:-3},
    blurb:"the vote given to those who have been paying for the state without choosing it",
@@ -68,6 +68,11 @@ const AMENDMENTS=[
      S.facs.provinces.mood=clamp(S.facs.provinces.mood+12);},
    gives:"every province steadies · the country binds itself in · secession becomes far less likely"}
 ];
+const CABINET_POSTS=["Minister of the Interior","Minister of Finance","Minister of War","Foreign Minister","Minister of Works"];
+function nextPost(S){
+  const taken=politicians(S).filter(x=>x.office).map(x=>x.office);
+  return CABINET_POSTS.find(x=>!taken.includes(x))||"Minister without Portfolio";
+}
 function renderConvention(){
   const pols=politicians(S).slice().sort((a,b)=>b.standing-a.standing);
   const rest=provinces(S).filter(p=>!p.core&&p.loyalty<45);
@@ -78,7 +83,7 @@ function renderConvention(){
     return `<button class="choice dyn-role" data-pol="${p.id}">
       <div class="cl"><span class="mk">${p.office?"✦":"·"}</span><span class="lbl">${esc(p.name)}, ${p.age} — ${esc(S.facs[p.bloc].name)}${p.office?` · ${esc(p.office)}`:""}</span></div>
       <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):"an unknown quantity"} · standing ${Math.round(p.standing)}</div>
-      <div class="costs">${p.office?`<span class="chip">holds office</span>`:`<span class="chip up">give them an office</span>`}<span class="chip fac ${S.facs[p.bloc].mood>50?"up":"down"}">${esc(S.facs[p.bloc].name)}</span></div></button>`;}).join("")}</div>`;
+      <div class="costs">${p.office?`<span class="chip">holds office</span><span class="chip down">dismiss them</span>`:`<span class="chip up">make them ${esc(nextPost(S))}</span>`}<span class="chip fac ${S.facs[p.bloc].mood>50?"up":"down"}">${esc(S.facs[p.bloc].name)}</span></div></button>`;}).join("")}</div>`;
   body+=`<div class="subhead">Civil society</div><div class="choices">${CIVIL_BODIES.map(b=>{
     const v=civilOf(S,b.id);
     return `<button class="choice dyn-match" data-civil="${b.id}">
@@ -106,16 +111,17 @@ function renderConvention(){
 /* ---------- convention handlers ---------- */
 function doPol(id){
   const p=politicians(S).find(x=>x.id===id); if(!p){toConvention();return;}
+  if(S._reshuffled===S.turn){ toConvention(); return; }   /* one reshuffle a season */
+  S._reshuffled=S.turn;
   if(p.office){
-    p.office=null; p.standing=clamp(p.standing-14);
-    applyOutcome({cost:{stability:-3},fac:{[p.bloc]:-7},
+    const churn=(p.tookOffice===S.turn)?9:0;              /* sacked the man you just named */
+    p.office=null; p.standing=clamp(p.standing-14); p.tookOffice=null;
+    applyOutcome({cost:{stability:-3-churn},fac:{[p.bloc]:-7-churn},
       chron:S=>`${p.name} was dismissed from the government.`,
       out:`${p.name} clears their desk and gives an interview on the way out. A politician out of office has nothing to do but campaign, and they are rather good at it.`},"convention");
   } else {
-    const posts=["Minister of the Interior","Minister of Finance","Minister of War","Foreign Minister","Minister of Works"];
-    const taken=politicians(S).filter(x=>x.office).map(x=>x.office);
-    const post=posts.find(x=>!taken.includes(x))||"Minister without Portfolio";
-    p.office=post; p.standing=clamp(p.standing+12);
+    const post=nextPost(S);
+    p.office=post; p.standing=clamp(p.standing+12); p.tookOffice=S.turn;
     applyOutcome({cost:{stability:+3},fac:{[p.bloc]:+8},
       chron:S=>`${p.name} was appointed ${post}.`,
       out:`${p.name} takes the ${post}. Their interest is flattered and their own standing grows — which is useful now and will be a problem in about fifteen years.`},"convention");

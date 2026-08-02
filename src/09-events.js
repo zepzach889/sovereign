@@ -79,10 +79,11 @@ const EVENTS=[
       {label:"Grant broad self-rule",cost:{gold:-10,stability:+7},fac:{provinces:+12,aristocracy:-3},
         effect:S=>{const p=autonomySeeker(S);if(p){p.autonomy=true;p.loyalty=clamp(p.loyalty+18);}},
         chron:S=>`the Crown answered the demand with a generous grant of self-rule; the province stayed, proudly, within the realm.`,
-        out:"The delegation leaves with more than they dared ask. Marrow stays — loudly — inside your borders."},
+        out:S=>{const p=autonomySeeker(S);return `The delegation leaves with more than they dared ask. ${p?p.name:"The province"} stays — loudly — inside your borders.`;}},
       {label:"Refuse and garrison the province",cost:{gold:-12,stability:+4},fac:{provinces:-12,peasantry:-4,officers:+3},
-        chron:S=>`the Crown answered Marrow with the regiment rather than the pen; its loyalty was never again freely given.`,
-        out:"The garrisons march in. Marrow goes quiet — the quiet of a held breath."}]},
+        effect:S=>{leanOnArmy(S,2);const p=autonomySeeker(S);if(p){p.loyalty=clamp(p.loyalty-16);p.garrisoned=true;}},
+        chron:S=>{const p=autonomySeeker(S);return `${crownWord(S)} answered ${p?p.name:"the province"} with the regiment rather than the pen; its loyalty was never again freely given.`;},
+        out:S=>{const p=autonomySeeker(S);return `The garrisons march in. ${p?p.name:"The province"} goes quiet — the quiet of a held breath.`;}}]},
   { id:"windfall",w:0.6,freq:Infinity,title:"Silver in the Eastern Hills",
     text:S=>`Surveyors return wild-eyed: a seam of silver in the eastern hills, richer than any in living memory.`,
     choices:[
@@ -111,6 +112,7 @@ const EVENTS=[
         chron:S=>`the Crown fed the starving from its own stores, and the gesture was sung of long after the hunger passed.`,
         out:"The kitchens work day and night. A fortune in bread — worth every loaf in loyalty."},
       {label:"Have the guard move them on",cost:{stability:+6},fac:{peasantry:-12,clergy:-4},
+        effect:S=>{leanOnArmy(S,1);},
         chron:S=>`the Crown had its guard clear the starving from the gate; a wound was opened that did not close.`,
         out:"The gate is clear. The memory is not."}]},
   /* ================= DISASTERS & AGE-SPECIFIC TROUBLES =================
@@ -508,8 +510,9 @@ const EVENTS=[
           S.gov.institutions.push(inst); transferPower(S,inst,Math.min(14,S.gov.crown.power));},
         chron:S=>`the towns convened without leave, and the Crown chose to seat them rather than scatter them.`,
         out:"You give it a room, a name and a mace, which turns an illegal assembly into an institution — and institutions can be bargained with. It is the cheapest thing you will do this century."},
-      {label:"Scatter them by force",cost:{stability:-14,arms:-4},fac:{merchants:-12,peasantry:-14,officers:+3,reformers:+10},
-        effect:S=>{S.legitPen=(S.legitPen||0)+9;
+      {label:"Scatter them by force",cost:{stability:-14,arms:-4},fac:{merchants:-12,peasantry:-14,officers:+3,reformers:-16},
+        effect:S=>{S.legitPen=(S.legitPen||0)+9;leanOnArmy(S,2);
+          if(S.facs.reformers)S.facs.reformers.strength=clamp(S.facs.reformers.strength+10);
           provinces(S).forEach(p=>{if(!p.core)p.loyalty=clamp(p.loyalty-7);});},
         chron:S=>`the Crown scattered the unauthorized assembly of the towns by force.`,
         out:"The hall is cleared in an afternoon. What was a demand becomes a grievance, what was a delegation becomes a movement, and the countryside hears about it within the month."}]},

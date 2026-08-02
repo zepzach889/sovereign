@@ -36,13 +36,13 @@ function renounceHouse(S){
 
 /* ---------- installing the junta ---------- */
 function installJunta(S,general){
+  clearRegimeState(S,"junta");
   S.regime="junta";
   S.junta={name:general.name,years:0,promised:false,purges:0,counter:0};
-  S.gov.crown.titleBase="Marshal";
+  S.gov.crown.titleBase=cleanTitle(S.customTitles&&S.customTitles.junta)||pick(regimeTitles(S,"junta"));
   /* the officers hold what the crown held */
   S.gov.institutions.forEach(inst=>{ powerToCrown(S,inst,inst.power); });
   S.gov.institutions=[];
-  S.pm=null; S._minority=false; S.regency=null; S.designated=null; S.rival=null;
   S.monarch={id:PID++,name:general.name,gender:general.gender,age:general.age,
     house:"the Army",regnal:1,alive:true,parents:null,spouseId:null,
     born:S.year-general.age,trait:general.trait||null,reignStart:S.year};

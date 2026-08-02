@@ -2,7 +2,7 @@
 /* =====================================================================
    SAVE / LOAD / SCORE / NEW
    ===================================================================== */
-const SAVE_VERSION=10;
+const SAVE_VERSION=11;
 /* ---------- autosave ----------
    Mobile browsers discard backgrounded tabs to reclaim memory and no page
    can prevent it. So instead of fighting the reload, we make it harmless:
@@ -69,6 +69,31 @@ function migrateSave(S){
     S.workCount={}; S.works.forEach(id=>{S.workCount[id]=1;});
     notes.push("Your existing works have been entered in the new register.");
   }
+  /* v11: the regimes learned to clean up after themselves, titles became
+     historical facts, and a country that has just changed its government
+     is given three turns before it may do so again. Saves from before that
+     may be carrying a regency they should have lost, a party congress
+     inside a republic, or estates abolished by a people's republic that
+     ended a century ago. Put it right. */
+  if(S.foundingTitle==null&&S.gov&&S.gov.crown) S.foundingTitle=S.gov.crown.titleBase;
+  if(S.regime&&S.regime!=="monarchy"&&(S.regency||S._minority||S.pm)){
+    S.regency=null; S._minority=false; S.pm=null; S._pmPending=false;
+    notes.push("Your government was still carrying a royal regency it had no business with. The regent has been retired.");
+  }
+  if(S.regime&&S.regime!=="people"&&S.gov&&(S.gov.institutions||[]).some(i=>i.id==="party")){
+    S.gov.institutions.filter(i=>i.id==="party").forEach(inst=>{ powerToCrown(S,inst,inst.power); });
+    S.gov.institutions=S.gov.institutions.filter(i=>i.id!=="party");
+    notes.push("A party congress was still sitting in a state that is no longer a people's republic. It has been dissolved, and its share of the power returned.");
+  }
+  if(S.regime&&S.regime!=="people"&&S.formerPeople){
+    ["aristocracy","clergy"].forEach(k=>{ if(S.facs&&S.facs[k]&&!S.facs[k].present){
+      S.facs[k].present=true; S.facs[k].strength=clamp(S.facs[k].strength+20); }});
+    S.formerPeople=false;
+    notes.push("The old estates had stayed abolished long after the revolution that abolished them ended. They are back — poorer, and not pleased.");
+  }
+  if(S.lineage)S.lineage.forEach(l=>{ if(l.title==null)l.title=S.foundingTitle||"King"; });
+  if(S._settledUntil==null)S._settledUntil=0;
+  if(S.customTitles==null)S.customTitles={republic:"",junta:"",people:""};
   if(S._debtYears==null)S._debtYears=0;
   if(S._reactYears==null)S._reactYears=0;
   if(S.workCount==null)S.workCount={};
@@ -114,12 +139,12 @@ function newModal(){const bg=openModal(`<h2>Begin a new reign?</h2><p>This ends 
     <div class="mrow"><button class="go" id="doNew">Begin anew</button><button id="closeM">Keep ruling</button></div>`);
   bg.querySelector("#closeM").onclick=()=>bg.remove();bg.querySelector("#doNew").onclick=()=>{S=null;bg.remove();render();};}
 
-function titleForG(g){const t=TITLE_FORMS[(S&&S.gov.crown.titleBase)||"King"]||TITLE_FORMS["King"];return g==="f"?t.f:t.m;}
+function titleForG(g,base){return titleForm(base||(S&&S.gov.crown.titleBase)||"King",g);}
 function dynModal(){
   if(!S)return;
-  const seq=[...S.lineage.map(l=>Object.assign({},l,{cur:false})),{id:S.monarch.id,name:S.monarch.name,regnal:S.monarch.regnal,house:S.monarch.house,gender:S.monarch.gender,cur:true}];
+  const seq=[...S.lineage.map(l=>Object.assign({},l,{cur:false})),{id:S.monarch.id,name:S.monarch.name,regnal:S.monarch.regnal,house:S.monarch.house,gender:S.monarch.gender,title:S.gov.crown.titleBase,cur:true}];
   const runs=[];seq.forEach(m=>{const last=runs[runs.length-1];if(last&&last.house===m.house)last.list.push(m);else runs.push({house:m.house,list:[m]});});
-  const rollHtml=runs.map(r=>`<div style="margin-bottom:10px"><div style="color:var(--brass);font-size:11px;letter-spacing:.1em;text-transform:uppercase">House of ${esc(r.house)}</div>${r.list.map(m=>`<div style="font-size:13px;color:#c8cfd6;padding-left:10px">${esc(titleForG(m.gender||"m"))} ${esc(m.name)}${(m.regnal||1)>1?" "+(ROMAN[m.regnal]||m.regnal):""}${m.birthName?` <span style="color:#6f7a84">(born ${esc(m.birthName)})</span>`:""}${m.cur?' <span style="color:var(--brass)">— reigning</span>':""}</div>`).join("")}</div>`).join("");
+  const rollHtml=runs.map(r=>`<div style="margin-bottom:10px"><div style="color:var(--brass);font-size:11px;letter-spacing:.1em;text-transform:uppercase">${/^the /i.test(r.house)?esc(r.house.charAt(0).toUpperCase()+r.house.slice(1)):"House of "+esc(r.house)}</div>${r.list.map(m=>`<div style="font-size:13px;color:#c8cfd6;padding-left:10px">${esc(titleForG(m.gender||"m",m.title))} ${esc(m.name)}${(m.regnal||1)>1?" "+(ROMAN[m.regnal]||m.regnal):""}${m.birthName?` <span style="color:#6f7a84">(born ${esc(m.birthName)})</span>`:""}${m.cur?' <span style="color:var(--brass)">— reigning</span>':""}</div>`).join("")}</div>`).join("");
   const persons=[...S.family,...(S.ancestors||[]),S.monarch];
   const houseNames=[...new Set(seq.map(m=>m.house))];
   const treeHtml=houseNames.map(hn=>{
@@ -129,7 +154,7 @@ function dynModal(){
     const sps=persons.filter(q=>q.spouseId===m.id&&q.id!==m.id);
     const spTxt=sps.length?sps.map(x=>`${esc(x.name)}${x.alive?"":" †"}`).join(", then "):"";
     const yrs=(m.start||m.born)?` <span style="color:#6f7a84;font-size:11.5px">${m.born?`b. ${m.born}`:""}${m.start?`${m.born?", ":""}r. ${m.start}–${m.end||"present"}`:""}</span>`:"";
-    return `<div style="margin-bottom:9px"><div style="font-size:13.5px;color:var(--bone)">◆ ${esc(titleForG(m.gender||"m"))} ${esc(m.name)}${(m.regnal||1)>1?" "+(ROMAN[m.regnal]||m.regnal):""}${spTxt?` ⚭ ${spTxt}`:""}${yrs}</div>${
+    return `<div style="margin-bottom:9px"><div style="font-size:13.5px;color:var(--bone)">◆ ${esc(titleForG(m.gender||"m",m.title))} ${esc(m.name)}${(m.regnal||1)>1?" "+(ROMAN[m.regnal]||m.regnal):""}${spTxt?` ⚭ ${spTxt}`:""}${yrs}</div>${
       kids.map(k=>{const ksps=persons.filter(q=>q.spouseId===k.id&&q.id!==k.id);const gks=persons.filter(q=>q.parents&&q.parents.includes(k.id));
         const crowned=seq.some(x=>x.id===k.id);
         return `<div style="padding-left:16px;font-size:12.5px;color:#b7c0c8">└ ${crowned?"♛ ":""}${esc(k.birthName||k.name)}${k.birthName?` — crowned as ${esc(k.name)}${(k.regnal||1)>1?" "+(ROMAN[k.regnal]||""):""}`:""}${k.alive?"":" †"}${ksps.length?` ⚭ ${ksps.map(x=>esc(x.name)).join(", then ")}`:""}${k.born?` <span style="color:#6f7a84;font-size:11px">b. ${k.born}</span>`:""}</div>${gks.map(g2=>`<div style="padding-left:32px;font-size:12px;color:#93a0ab">└ ${esc(g2.name)}${g2.alive?"":" †"}</div>`).join("")}`;}).join("")

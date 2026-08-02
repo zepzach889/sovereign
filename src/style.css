@@ -304,3 +304,6 @@
     .phasestrip{flex-wrap:wrap}.phasestep{min-width:30%}
   }
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* the three styles a fallen crown might be replaced by */
+.customtitles{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.customtitles input{width:100%;font-size:13px;padding:8px 10px}

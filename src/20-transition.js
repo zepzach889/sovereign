@@ -10,6 +10,8 @@ const REGIME_OF_PRESSURE={military:"junta",radical:"people",constitutional:"repu
 function regimeName(r){ return r==="junta"?"a military government":r==="people"?"a people's republic":r==="republic"?"a republic":"a crown"; }
 /* a realm cannot become what it already is */
 function transitionReady(S){
+  /* the honeymoon: three turns in which the new order is simply the order */
+  if(S._settledUntil&&(S.turn||0)<S._settledUntil)return null;
   const cur=S.regime||"monarchy";
   let best=null;
   PRESSURES.forEach(p=>{
@@ -40,14 +42,10 @@ function restoreMonarchy(S,how){
   const ex=S.exiles&&S.exiles.alive?S.exiles:null;
   const house=ex?ex.house:pick(housePool());
   const m=ex&&(ex.members||[]).sort((a,b)=>b.age-a.age)[0];
-  S.regime="monarchy"; S.gov.crown.titleBase=(culture(S).titles[0]||"King");
-  S.rep=null; S.junta=null; S.plan=null; S.politburo=null; S.pols=null;
-  ["aristocracy","clergy"].forEach(k=>{ if(S.facs[k]&&!S.facs[k].present){
-    S.facs[k].present=true; S.facs[k].strength=clamp(S.facs[k].strength+20); }});
-  S.formerPeople=false;
-  /* dissolve the party back into the crown without losing any of the pool */
-  S.gov.institutions.filter(i=>i.id==="party").forEach(inst=>{ powerToCrown(S,inst,inst.power); });
-  S.gov.institutions=S.gov.institutions.filter(i=>i.id!=="party");
+  clearRegimeState(S,"monarchy");
+  S.regime="monarchy";
+  /* a crown that comes back returns under the title the realm remembers */
+  S.gov.crown.titleBase=S.foundingTitle||(culture(S).titles[0]||"King");
   const g=m?m.gender:(chance(0.6)?"m":"f");
   S.house=house;
   S.monarch={id:PID++,name:m?m.name:nameFor(g,usedNames(S)),gender:g,
@@ -67,7 +65,18 @@ function applyTransition(S,r){
   else if(r==="republic"){ installRepublic(S,from==="junta"); line=`${S.nation} was proclaimed a republic`; }
   else if(r==="people"){ installPeoples(S,"revolution"); line=`${S.nation} was proclaimed a People's Republic`; }
   else { line=restoreMonarchy(S,from); }
-  if(S.pressure)PRESSURES.forEach(p=>{ if(REGIME_OF_PRESSURE[p.id]===r)S.pressure[p.id]=Math.max(0,S.pressure[p.id]-50); });
+  /* A revolution exhausts everybody, not only the faction that won it.
+     Draining the matching pressure alone left the people's republic sitting
+     on the constitutional reading that would overthrow it two ticks later —
+     and the install's own hit to legitimacy and stability fed that reading
+     straight back through collapseDrive. Everything comes down. */
+  if(S.pressure)PRESSURES.forEach(p=>{
+    const cut=(REGIME_OF_PRESSURE[p.id]===r)?50:26;
+    S.pressure[p.id]=Math.max(0,S.pressure[p.id]-cut); });
+
+  /* And nothing may break again for a while. A country that has just
+     changed its form of government is briefly too tired to do it twice. */
+  S._settledUntil=(S.turn||0)+3;
   return line;
 }
 /* ---------- screens ---------- */
@@ -125,4 +134,50 @@ function doTerror(kind){
       out:"No tribunals. The old families keep their houses and their grievances, the churches keep their doors, and everyone waits to see whether this was mercy or weakness. It is the only version of this that has ever lasted — and it will be tested."},"fresh");
   }
   render();
+}
+
+/* =====================================================================
+   A REPUBLIC DOES NOT HAVE A SUCCESSION CRISIS
+   A dead head of state used to route straight into the dynastic machine
+   regardless of regime, which is how a republic came to have the great
+   houses choose a President from among the wealthiest families and
+   found a new royal house for him. Constitutions exist precisely so
+   that the death of the man at the top is an administrative event.
+   ===================================================================== */
+function succeedNonMonarch(S){
+  const old=S.monarch, r=S.regime||"republic";
+  /* the outgoing office-holder joins the roll under the title they held */
+  S.lineage.push({id:old.id,name:old.name,birthName:old.birthName||null,regnal:old.regnal||1,
+    house:old.house,gender:old.gender,start:old.reignStart||null,end:S.year,born:old.born||null,
+    title:S.gov.crown.titleBase,regime:r});
+  S.ancestors=S.ancestors||[];
+  const gone=Object.assign({},old); gone.died=S.year; gone.alive=false; S.ancestors.push(gone);
+
+  let name,g,age,line,out;
+  if(r==="junta"){
+    const gen=newGeneral(S);
+    name=gen.name; g=gen.gender; age=gen.age;
+    if(S.junta)S.junta.name=gen.name;
+    line=`${old.name} died, and the council named ${name} to the chair before the morning was out.`;
+    out=`${old.name} is dead. The council meets before dawn and emerges with ${name}, who was always going to be next and has the good manners to look surprised.`;
+    S.stability=clamp(S.stability-6); S.legitPen=(S.legitPen||0)+4;
+  } else if(r==="people"){
+    g=chance(0.8)?"m":"f"; age=52+rand(18);
+    name=nameFor(g,usedNames(S))+" "+pick(surnamePool());
+    line=`${old.name} died, and the Presidium confirmed ${name} in their place — unanimously, as it confirms everything.`;
+    out=`${old.name} lies in state for nine days. ${name} stands at the head of the queue at the lying-in, which is how the country learns who won.`;
+    S.stability=clamp(S.stability-4); S.legitPen=(S.legitPen||0)+3;
+  } else {
+    g=chance(0.5)?"m":"f"; age=46+rand(18);
+    name=repLeaderName(S);
+    const bloc=(S.rep&&S.facs[S.rep.bloc])?S.facs[S.rep.bloc].name:"governing";
+    line=`${old.name} died in office, and ${name} of the ${bloc} interest took the oath the same afternoon.`;
+    out=`${old.name} is dead. ${name} takes the oath in a side room with two witnesses and a borrowed book, and the state goes on — which is, in the end, the only thing a constitution is for.`;
+    S.stability=clamp(S.stability-3);
+  }
+  S.monarch={id:PID++,name,gender:g,age,house:old.house,regnal:1,alive:true,
+    parents:null,spouseId:null,born:S.year-age,trait:rollTrait(),reignStart:S.year};
+  S.deathRolled=true;
+  refreshRelations(S);
+  applyOutcome({chron:()=>line,out},"endturn");
 }

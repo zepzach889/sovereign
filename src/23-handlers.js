@@ -42,7 +42,10 @@ function wire(){
     else if(v==="wedself"){S._matchFor="self";S._matchC=null;S.phase="match";render();}});
   document.querySelectorAll("[data-dcwed]").forEach(b=>b.onclick=()=>{S._matchFor=+b.dataset.dcwed;S._matchC=null;S.phase="match";render();});
   document.querySelectorAll("[data-dcrole]").forEach(b=>b.onclick=()=>{S._rolePick=b.dataset.dcrole;S.phase="rolepick";render();});
-  document.querySelectorAll("[data-rolewho]").forEach(b=>b.onclick=()=>doRole(S._rolePick,+b.dataset.rolewho));
+  /* courtier ids arrive as "c17" and doRole parses them itself; a + here
+     turned every one of them into NaN and the office stayed vacant */
+  document.querySelectorAll("[data-rolewho]").forEach(b=>{const w=b.dataset.rolewho;
+    b.onclick=()=>doRole(S._rolePick,/^c/.test(w)?w:+w);});
   document.querySelectorAll("[data-regent]").forEach(b=>b.onclick=()=>chooseRegent(+b.dataset.regent));
   document.querySelectorAll("[data-fate]").forEach(b=>b.onclick=()=>doHouseFate(b.dataset.fate));
   document.querySelectorAll("[data-jexit]").forEach(b=>b.onclick=()=>doJuntaExit(b.dataset.jexit));

@@ -22,8 +22,11 @@ function phaseStrip(){
   const steps=[];
   if(S.phase==="tidings")steps.push(["tidings","Tidings"]);
   if(S.phase==="election")steps.push(["election","Election"]);
-  steps.push(["event","Event"],["court","Court"],["advance","Advancement"],["dynastic","Dynasty"]);
-  if(S.phase==="dyncourt"||S.phase==="match"||S.phase==="designate")steps[steps.length-1]=["dyncourt","Dynasty"];
+  steps.push(["event","Event"],["court","Court"],["advance","Advancement"],["dynastic",lastPhaseName(S)]);
+  if(S.phase==="dyncourt"||S.phase==="match"||S.phase==="designate")steps[steps.length-1]=["dyncourt",lastPhaseName(S)];
+  if(S.phase==="convention"||S.phase==="civilpick")steps[steps.length-1]=["convention",lastPhaseName(S)];
+  if(S.phase==="congress")steps[steps.length-1]=["congress",lastPhaseName(S)];
+  if(S.phase==="juntaexit")steps[steps.length-1]=["juntaexit",lastPhaseName(S)];
   return `<div class="phasestrip">${steps.map(([k,l])=>{
     const cls=(S.phase===k||(k==="event"&&S.phase==="quiet"))?"now":(S.phaseDone[k]?"done":"");
     return `<div class="phasestep ${cls}">${l}</div>`;}).join("")}</div>`;
@@ -104,13 +107,13 @@ function render(){
       <span class="powerbar chamber"><i style="width:${i.power}%"></i></span><span class="pp">${i.power}</span></div>
     <div class="rights">${i.rights.filter(r=>r!=="petition").length?"consent over "+i.rights.filter(r=>r!=="petition").join(", "):"advisory"}${i.rights.includes("petition")?" · may petition":""}</div>`).join("");
   const govHtml=`<div class="gov">
-    <div class="gt"><span>The Government of ${esc(S.nation)}</span><span class="house">House of ${esc(S.house)}</span></div>
+    <div class="gt"><span>The Government of ${esc(S.nation)}</span><span class="house">${esc(execHouse(S))}</span></div>
     <div class="hos">${esc(styled(S,S.monarch))} <small>· aged ${S.monarch.age}</small></div>
     ${S.pm?`<div class="hos" style="margin-top:4px">${esc(S.pm.office)}: ${esc(S.pm.holder)}, ${S.pm.age} <small>· ${esc(S.facs[S.pm.bloc].name)} interest — you govern from this desk</small></div>
     <div class="legit-src" style="margin:2px 0 0">Next election: turn ${S.nextElection} (~${S.year+(S.nextElection-S.turn)*4}). The estates ARE the electorate — their mood and influence decide it; a vote of no confidence falls if your bloc drops below 30.</div>`:""}
-    <div class="legit-src" style="margin:4px 0 0">The Crown is ${crownBand(S).label} — ${crownBand(S).desc}.</div>
-    ${S.regency?`<div class="regency">A regency governs in the sovereign's minority — ${esc(S.regency.name)} holds the seals.</div>`:""}
-    <div class="powerrow"><span class="pn">The Crown</span><span class="powerbar"><i style="width:${S.gov.crown.power}%"></i></span><span class="pp">${S.gov.crown.power}</span></div>
+    <div class="legit-src" style="margin:4px 0 0">${esc(execWord(S))} is ${crownBand(S).label} — ${crownBand(S).desc}.</div>
+    ${(S.regency&&isMonarchy(S))?`<div class="regency">A regency governs in the sovereign's minority — ${esc(S.regency.name)} holds the seals.</div>`:""}
+    <div class="powerrow"><span class="pn">${esc(execWord(S))}</span><span class="powerbar"><i style="width:${S.gov.crown.power}%"></i></span><span class="pp">${S.gov.crown.power}</span></div>
     ${instHtml}${S.gov.cabinet?`<div class="rights" style="margin-left:0;margin-top:6px">Cabinet: ${esc(S.gov.cabinet)} — action costs −10% · the realm develops and steadies more readily</div>`:""}${S.gov.charter?`<div class="rights" style="margin-left:0">Charter: ${esc(S.gov.charter)}</div>`:""}
   </div>`;
   const facHtml=Object.keys(S.facs).map(k=>{const f=S.facs[k];
@@ -158,7 +161,7 @@ function render(){
       <div class="yearrow"><span class="yearnum">${S.year}</span><span class="yearlbl">legacy ${legacyScore()}</span></div>
       <div class="meters">${meter("Stability",S.stability,"var(--blue)")}${meter("Arms",S.military,"var(--rust)")}${meter("Legitimacy",legit,"var(--sage)")}</div>
       <div class="budget">
-        <div class="bx"><span class="bk">Treasury</span><span class="bv treasury-v ${treasNeg}">${S.treasury<0?"−":""}${Math.abs(S.treasury)}${S.debt>0?` (credit left ${Math.max(0,40+(S._creditBonus||0)+S.treasury)})`:""}</span></div>
+        <div class="bx"><span class="bk">Treasury</span><span class="bv treasury-v ${treasNeg}">${S.treasury<0?"−":""}${Math.abs(S.treasury)}${S.debt>0?` (credit left ${Math.max(0,creditLine(S)+S.treasury)})`:""}</span></div>
         <div class="bx"><span class="bk">Income</span><span class="bv">+${income(S)}</span></div>
         <div class="bx"><span class="bk">Upkeep</span><span class="bv">−${upkeep(S)}</span></div>
         <div class="bx"><span class="bk">Net / turn</span><span class="bv ${netCls}">${net>=0?"+":"−"}${Math.abs(net)}</span></div>
@@ -212,7 +215,7 @@ function renderAdvance(){
     </button>`;}).join("");
   const wkHtml=wks.map(w=>{
     const n=workCount(S,w.id), g=workGold(S,w), y=workYield(w,n);
-    const aff=S.treasury-g>-(40+(S._creditBonus||0));
+    const aff=S.treasury-g>=-creditLine(S);
     return `<button class="choice adv-works" data-buywork="${w.id}" ${aff?"":"disabled"}>
       <div class="cl"><span class="mk">⌂</span><span class="lbl">${esc(w.name)}${n?` — a further foundation (${n} standing)`:""}</span></div>
       <div class="ch">${esc(w.blurb)}</div>
@@ -642,5 +645,5 @@ function renderOutcome(){
   return `<div class="outcome">${ms}
     ${r.fortune?`<div class="fortune ${r.fortune}">${r.fortune==="good"?"A good turn":"It goes ill"}</div>`:""}
     <p class="ot">${esc(r.out)}</p>
-    <button class="cont" id="continue">${r.next==="court"?"To the court phase →":r.next==="dynastic"?"To dynastic matters →":"Let the years pass →"}</button></div>`;
+    <button class="cont" id="continue">${r.next==="court"?"To the court phase →":r.next==="dynastic"?(S.phaseDone&&!S.phaseDone.advance?"To the advancements →":`To ${lastPhaseLabel(S)} →`):"Let the years pass →"}</button></div>`;
 }

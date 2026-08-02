@@ -13,8 +13,9 @@ const PLAN_PARTS=[
 ];
 function planOf(S,id){ S.plan=S.plan||{industry:40,consumer:40,arms:20}; return S.plan[id]||0; }
 function installPeoples(S,how){
+  clearRegimeState(S,"people");
   S.regime="people";
-  S.gov.crown.titleBase="Chairman";
+  S.gov.crown.titleBase=cleanTitle(S.customTitles&&S.customTitles.people)||pick(regimeTitles(S,"people"));
   /* the old orders are abolished, not outvoted */
   ["aristocracy","clergy"].forEach(k=>{ if(S.facs[k]){
     S.facs[k].present=false; S.facs[k].strength=0; S.facs[k].mood=clamp(S.facs[k].mood-30); }});

@@ -2,7 +2,7 @@
 /* =====================================================================
    SETUP
    ===================================================================== */
-let SETUP={culture:"anglo",title:null,law:"malepref",nation:"",house:""};
+let SETUP={culture:"anglo",title:null,law:"malepref",nation:"",house:"",custom:{republic:"",junta:"",people:""}};
 function renderSetup(){
   const C=CULTURES[SETUP.culture]||CULTURES.anglo;
   const titles=C.titles.filter(t=>TITLE_FORMS[t]);
@@ -21,6 +21,13 @@ function renderSetup(){
     <div class="field"><label>The style of the crown</label>
       <div class="radio-row" id="titleRow">${titles.map(t=>`<button data-title="${t}" class="${SETUP.title===t?"on":""}">${t} / ${TITLE_FORMS[t].f}</button>`).join("")}</div>
       <div class="hint">Sovereigns bear the form matching their person — a King's daughter reigns as Queen.</div></div>
+    <div class="field"><label>If the crown should fall</label>
+      <div class="hint" style="margin-top:0">Nothing lasts three hundred years. If a republic, a junta or a people's republic takes the state, its head will be styled from the tradition above — or by whatever you write here. Leave them blank and the realm will decide for itself.</div>
+      <div class="customtitles">
+        <input type="text" id="ctRepublic" placeholder="a republic — ${esc(C.repTitles[0])}, ${esc(C.repTitles[1])}…" maxlength="28" />
+        <input type="text" id="ctJunta" placeholder="a junta — ${esc(C.juntaTitles[0])}, ${esc(C.juntaTitles[1])}…" maxlength="28" />
+        <input type="text" id="ctPeople" placeholder="a people's republic — ${esc(C.peopleTitles[0])}, ${esc(C.peopleTitles[1])}…" maxlength="28" />
+      </div></div>
     <div class="field"><label>The law of succession</label>
       <div class="law-list" id="lawList">${Object.keys(LAWS).map((l,i)=>`
         <button data-law="${l}" class="${SETUP.law===l?"on":""}"><div class="ln">${LAWS[l].name}</div><div class="ld">${LAWS[l].desc}</div></button>`).join("")}</div>
@@ -48,7 +55,13 @@ function renderSetup(){
   document.querySelectorAll("[data-house]").forEach(b=>b.onclick=()=>{house.value=b.dataset.house;SETUP.house=house.value;sync();});
   document.querySelectorAll("[data-title]").forEach(b=>b.onclick=()=>{SETUP.title=b.dataset.title;document.querySelectorAll("[data-title]").forEach(x=>x.classList.toggle("on",x===b));});
   document.querySelectorAll("[data-law]").forEach(b=>b.onclick=()=>{SETUP.law=b.dataset.law;document.querySelectorAll("[data-law]").forEach(x=>x.classList.toggle("on",x===b));});
-  begin.onclick=()=>{if(nat.value.trim()&&house.value.trim())newGame({nation:nat.value.trim(),title:SETUP.title,house:house.value.trim(),law:SETUP.law,culture:SETUP.culture});};
+  begin.onclick=()=>{if(nat.value.trim()&&house.value.trim())newGame({nation:nat.value.trim(),title:SETUP.title,house:house.value.trim(),law:SETUP.law,culture:SETUP.culture,
+    custom:{republic:(SETUP.custom.republic||"").trim(),junta:(SETUP.custom.junta||"").trim(),people:(SETUP.custom.people||"").trim()}});};
+  [["ctRepublic","republic"],["ctJunta","junta"],["ctPeople","people"]].forEach(([id,k])=>{
+    const f=document.getElementById(id); if(!f)return;
+    f.value=SETUP.custom[k]||"";
+    f.oninput=()=>{SETUP.custom[k]=f.value.slice(0,28);};
+  });
   const rb=document.getElementById("resumeBtn");
   if(rb)rb.onclick=()=>{ if(!resumeAutosave()){ rb.textContent="That chronicle could not be read"; } };
   const sl=document.getElementById("setupLoad");

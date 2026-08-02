@@ -17,7 +17,11 @@ function successionOptions(){
   return {mode:"crisis",sibs};
 }
 function crownPerson(p,houseName,viaCrisis){
-  S.lineage.push({id:S.monarch.id,name:S.monarch.name,birthName:S.monarch.birthName||null,regnal:S.monarch.regnal,house:S.monarch.house,gender:S.monarch.gender,start:S.monarch.reignStart||null,end:S.year,born:S.monarch.born||null});
+  /* Relations are derived and never stored; a title is the opposite. It is
+     what the realm called them at the time, and no later regime gets to
+     revise it — which is how six dead emperors came to be listed as
+     Presidents on the roll of the House of Andros. */
+  S.lineage.push({id:S.monarch.id,name:S.monarch.name,birthName:S.monarch.birthName||null,regnal:S.monarch.regnal,house:S.monarch.house,gender:S.monarch.gender,start:S.monarch.reignStart||null,end:S.year,born:S.monarch.born||null,title:S.monarch.titleAt||S.gov.crown.titleBase,regime:S.regime||"monarchy"});
   S.ancestors=S.ancestors||[];
   const oldM=Object.assign({},S.monarch); oldM.died=S.year; oldM.alive=false; S.ancestors.push(oldM);
   const newHouse=houseName||S.house;

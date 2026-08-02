@@ -39,6 +39,7 @@ const ACTIONS=[
     hint:"order by force. Forbidden once a charter binds the Crown",
     cost:{gold:-12,stability:+12},fac:{peasantry:-8,provinces:-6,officers:+2},
     requires:S=>!S.gov.charter,
+    effect:S=>{leanOnArmy(S,2);},
     chron:S=>`the Crown answered discontent with the garrison; order returned, and a grievance was pressed into memory.`,
     out:["Soldiers in the squares, a curfew at dusk. The unrest subsides into a silence that is not loyalty."]},
   { id:"tax_decree",label:"Levy an emergency tax by decree",
@@ -72,12 +73,14 @@ const ACTIONS=[
     gain:"+4 Stability, the common estates warm",
     cost:{gold:-6,stability:+4},fac:{peasantry:+4,merchants:+3},
     requires:S=>S.gov.institutions.some(i=>i.composition!=="nobility"),
-    chron:S=>`the ${S.pm?S.pm.office:"Crown"} addressed the lower chamber in person, and the benches roared.`,
+    chron:S=>`${S.pm?"the "+S.pm.office:crownWord(S)} addressed the lower chamber in person, and the benches roared.`,
     out:["A speech from the bar of the house — plainly written, plainly meant. The wards repeat it for a season."]},
   { id:"dissolve",label:"Dissolve the chamber",cool:3,
     hint:"send them home and put the realm to the polls before its time",
     gain:"a fresh election — and a chamber reminded who summoned it",
-    cost:{gold:-10,stability:-6},requires:S=>S.gov.institutions.length>0&&S.gov.crown.power>=30,
+    cost:{gold:-10,stability:-6},
+    requires:S=>S.gov.institutions.length>0&&S.gov.crown.power>=30
+      &&(!!S.pm||(regimeIs(S,"republic")&&!!S.rep)||S.gov.institutions.some(i=>i.composition!=="nobility")),
     resolve:S=>{ const fx={}; (composition[S.gov.institutions[0].composition]||[]).forEach(k=>{fx[k]=-6;});
       S._dissolutions=(S._dissolutions||0)+1;
       if(S._dissolutions>=3){ return {cost:{gold:-10,stability:-16},fac:fx,
@@ -110,6 +113,7 @@ const ACTIONS=[
     gain:"+8 Stability now, and a colder country",
     cost:{gold:-12,stability:+8},fac:{officers:+5,merchants:-7,peasantry:-8},
     requires:S=>regimeIs(S,"junta"),
+    effect:S=>{leanOnArmy(S,2);},
     chron:S=>`martial law was extended across ${S.nation} for a further term.`,
     out:["Order, of a kind that can be measured. The streets are safe and empty and nobody writes anything down."]},
   { id:"purge_officers",label:"Purge the officer corps",cool:3,dom:"crown",
@@ -148,7 +152,7 @@ const ACTIONS=[
     hint:"for the duration of the emergency — and the emergency is whatever you say it is",
     gain:"the programme continues; you keep your face and your mandate",
     cost:{stability:-10},requires:S=>regimeIs(S,"republic"),
-    effect:S=>{S.rep.entrench=(S.rep.entrench||0)+1;S.rep.nextVote=S.turn+S.rep.termTurns;
+    effect:S=>{if(!S.rep)return;S.rep.entrench=(S.rep.entrench||0)+1;S.rep.nextVote=S.turn+S.rep.termTurns;
       S.rep.friction=(S.rep.friction||1)*1.12;S.legitPen=(S.legitPen||0)+14;
       bumpPressure(S,"radical",8);
       bumpPressure(S,"military",6);},
@@ -204,16 +208,16 @@ const ACTIONS=[
     effect:S=>{S.development=clamp(S.development+7);},
     chron:S=>`the ministry raised works across ${S.nation} — bridges, roads, waterworks — and the country grew visibly richer.`,
     out:["Surveyors, then scaffolds, then traffic. Development rises where the ministry builds — and so does every future year's revenue."]},
-  { id:"surplus",label:"Deliver a surplus budget",cool:3,requires:S=>!!S.pm&&netIncome(S)>0,
+  { id:"surplus",label:"Deliver a surplus budget",cool:3,requires:S=>(!!S.pm||!isMonarchy(S))&&netIncome(S)>0,
     hint:"prudent administration turned directly into gold and confidence",
     cost:{gold:+16,stability:+2},fac:{merchants:+3},
     chron:S=>`the ministry delivered a surplus, and the credit of ${S.nation} strengthened.`,
     out:["The books balance with room to spare. The funds notice; so do the lenders. Competence, it turns out, pays."]},
   { id:"early_election",label:"Call an early election",cool:4,
     hint:"go to the country — renew the mandate, or watch it pass to another interest",
-    cost:{stability:-3},requires:S=>!!S.pm,
+    cost:{stability:-3},requires:S=>!!S.pm||(regimeIs(S,"republic")&&!!S.rep),
     effect:S=>{S.nextElection=S.turn+1;},
-    chron:S=>`the ${S.pm.office} dissolved the chamber and went to the country.`,
+    chron:S=>`${S.pm?"the "+S.pm.office:crownWord(S)} dissolved the chamber and went to the country.`,
     out:["Writs issued, hustings raised. The realm will speak at the next sitting."]},
 ];
 const ACT_DOM={patronize:"faith",festival:"faith",festival_realm:"faith",
@@ -261,4 +265,22 @@ const REGIME_ONLY={martial_law:"junta",purge_officers:"junta",plebiscite:"junta"
   postpone_vote:"republic",narrow_franchise:"republic",prosecute_opposition:"republic"};
 function availableActions(S){ return ACTIONS.filter(a=>(!REGIME_ONLY[a.id]||regimeIs(S,REGIME_ONLY[a.id]))&&(regimeIs(S,"monarchy")||!MONARCH_ONLY.includes(a.id))&&a.requires(S)&&!onCooldown(S,a.id)&&costMod(S,a.id)!==0); }
 function onCooldown(S,id){ return (S.cooldowns[id]||0)>S.turn; }
-function affordable(S,a){ const g=(adjCost(S,a).gold)||0; if(g>=0)return true; return (S.treasury+g)>=-OVERDRAFT; }
+function creditLine(S){ return OVERDRAFT+(S._creditBonus||0); }
+
+/* =====================================================================
+   LEANING ON THE ARMY
+   _militaryLeaned has fed the barracks pressure since the beginning and
+   nothing has ever incremented it, which is why no junta ever formed in
+   a country whose officers were content. The mechanism it was written for
+   is the real one: every time a government solves a civil problem with
+   soldiers, the officers learn they are indispensable, and a class of men
+   forms who believe the country would run better without the arguing.
+   It decays if you stop. It does not decay if you don't.
+   ===================================================================== */
+function leanOnArmy(S,n){ S._militaryLeaned=Math.min(12,(S._militaryLeaned||0)+(n||1)); }
+
+/* The sidebar has always shown OVERDRAFT + whatever the Bourse, the Funded
+   Debt and the Joint-Stock Act bought you. The gate ignored all of it and
+   stopped at a flat 40, so a realm with 187 of advertised credit could not
+   buy a loaf. The display was right; the gate was lying. */
+function affordable(S,a){ const g=(adjCost(S,a).gold)||0; if(g>=0)return true; return (S.treasury+g)>=-creditLine(S); }

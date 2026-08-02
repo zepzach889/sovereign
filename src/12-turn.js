@@ -398,7 +398,10 @@ function endTurn(){
     } }
   checkMilestones();
   // next turn begins — unless the monarch died (succession phase pending)
-  if(!S.monarch.alive){ S.phase="succession"; return; }
+  if(!S.monarch.alive){
+    /* only a crown has a succession; everything else has a procedure */
+    if(!isMonarchy(S)){ succeedNonMonarch(S); render(); return; }
+    S.phase="succession"; return; }
   if(S.stability<=5){ S.currentEvent=REVOLT; S.eventLast["revolt"]=S.turn; S.phase="event"; S.phaseDone={event:false,court:false,dynastic:false}; return; }
   beginTurn(false);
 }
