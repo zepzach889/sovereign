@@ -35,7 +35,8 @@ console.log(`  ${names.length} top-level functions, no duplicates: OK`);
 
 /* --- guard 3: index.html must list every module, in manifest order --- */
 const idx = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
-const tagged = [...idx.matchAll(/<script src="src\/([^"]+)\.js"><\/script>/g)].map(m => m[1]);
+/* the ?v= suffix is cache-busting for GitHub Pages; bump it on every publish */
+const tagged = [...idx.matchAll(/<script src="src\/([^"?]+)\.js(?:\?[^"]*)?"><\/script>/g)].map(m => m[1]);
 if (tagged.join("|") !== manifest.join("|")) {
   console.error("index.html script tags do not match the manifest.");
   console.error("  manifest:", manifest.join(", "));

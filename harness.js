@@ -139,6 +139,7 @@ for (const m of manifest) {
   catch (e) { console.error(`FAILED loading ${m}.js: ${e.message}`); process.exit(1); }
 }
 console.log(`loaded ${manifest.length} modules`);
+vm.runInContext("globalThis.__cultures=CULTURES; globalThis.__titleForms=TITLE_FORMS;", sandbox);
 
 /* Top-level `let` lives in the shared script scope, not on globalThis —
    exactly as it does across <script> tags in the browser. Bridge to it. */
@@ -218,42 +219,309 @@ if (typeof sandbox.applyTransition === "function") {
   console.log(`  transition edges exercised: ${edges}/12`);
 } else console.log("  (applyTransition absent — edge tests skipped)");
 
-/* ===================================================================== */
-console.log(`\n— chaos: ${STEPS.toLocaleString()} steps, seed ${SEED} —`);
-S = freshGame();
-try { sandbox.render(); } catch (e) { fail("initial render threw: " + e.message); }
 
-const phasesSeen = new Set(), actionsFired = {};
-let clicks = 0, dead = 0, thrown = 0;
+/* =====================================================================
+   TARGETED SCREENS — the places a random monkey almost never lands, and
+   which therefore shipped broken. Each of these is a bug Zach found by
+   hand in the 1622–1922 playthrough. They are regression tests now.
+===================================================================== */
+console.log("\n— targeted screens —");
 
-for (let step = 0; step < STEPS; step++) {
-  const cur = B.S;
-  if (cur) { phasesSeen.add(cur.phase); invariants(cur, `step ${step} (phase ${cur.phase})`); }
-
-  const HEADER = ["btnSave", "btnLoad", "btnNew"];   /* save/load/reset are not play */
-  const buttons = registry.filter(e => typeof e.onclick === "function" && !HEADER.includes(e.attrs.id));
-  if (!buttons.length) {
-    dead++;
-    try { sandbox.render(); } catch (e) { fail(`render threw at step ${step}: ${e.message}`); break; }
-    if (dead > 40) { fail(`no clickable element for 40 consecutive steps at phase ${cur && cur.phase}`); break; }
-    continue;
+/* ---- every culture pack is complete and every regime can be styled ---- */
+{
+  const CU = sandbox.__cultures, TF = sandbox.__titleForms;
+  ok(Object.keys(CU).length === 8, `cultures: ${Object.keys(CU).length} packs, want 8`);
+  for (const k in CU) {
+    const C = CU[k];
+    ok((C.titles || []).length === 6, `${k}: ${(C.titles||[]).length} monarch titles, want 6`);
+    for (const f of ["repTitles", "juntaTitles", "peopleTitles"])
+      ok((C[f] || []).length === 4, `${k}.${f}: ${(C[f]||[]).length}, want 4`);
+    for (const f of ["titles", "repTitles", "juntaTitles", "peopleTitles"])
+      for (const t of C[f] || [])
+        ok(!!TF[t], `${k}.${f}: no gendered form for "${t}"`);
+    for (const g of ["m", "f"]) {
+      ok(C[g].late.length >= 10, `${k}.${g}.late has only ${C[g].late.length} names — the industrial age will repeat itself`);
+      ok(C[g].early.length >= 10, `${k}.${g}.early has only ${C[g].early.length} names`);
+      const dup = C[g].early.filter(n => C[g].late.includes(n));
+      ok(dup.length === 0, `${k}.${g}: ${dup.join(", ")} appears in both strata`);
+    }
   }
-  dead = 0;
-  const b = buttons[Math.floor(rnd() * buttons.length)];
-  const tag = Object.keys(b.attrs).find(k => k.startsWith("data-")) || "?";
-  actionsFired[tag] = (actionsFired[tag] || 0) + 1;
-  clicks++;
-  try { b.onclick(); } catch (e) {
-    thrown++;
-    if (thrown <= 10) fail(`click ${tag} at step ${step} (phase ${cur && cur.phase}): ${e.message}`);
+  /* no two packs share a title except King, which every tradition really has */
+  const seen = {};
+  for (const k in CU) for (const t of CU[k].titles) (seen[t] = seen[t] || []).push(k);
+  const shared = Object.keys(seen).filter(t => seen[t].length > 1 && t !== "King" && t !== "Emperor");
+  ok(shared.length === 0, `titles shared between packs: ${shared.map(t => `${t} (${seen[t].join("/")})`).join(", ")}`);
+
+  /* and each regime installs under a style its culture actually owns */
+  for (const ck of Object.keys(CU)) {
+    for (const r of ["junta", "republic", "people"]) {
+      sandbox.newGame({ nation: "T", title: CU[ck].titles[0], house: "H", law: "malepref", culture: ck });
+      install(r);
+      const base = B.S.gov.crown.titleBase;
+      const pool = r === "republic" ? CU[ck].repTitles : r === "junta" ? CU[ck].juntaTitles : CU[ck].peopleTitles;
+      ok(pool.includes(base), `${ck}/${r}: styled "${base}", which is not in that culture's list`);
+      ok(sandbox.styled(B.S, B.S.monarch).startsWith(sandbox.titleForm(base, B.S.monarch.gender)),
+         `${ck}/${r}: head of state not styled with the regime title`);
+    }
   }
-  if (failures > 200) { console.error("  too many failures — stopping early"); break; }
+  /* a typed title overrides the pool and survives into the chronicle */
+  sandbox.newGame({ nation: "T", title: "King", house: "H", law: "malepref", culture: "anglo",
+                    custom: { republic: "The Helmsman", junta: "", people: "" } });
+  install("republic");
+  ok(B.S.gov.crown.titleBase === "The Helmsman",
+     `custom title ignored (got "${B.S.gov.crown.titleBase}")`);
+  ok(sandbox.styled(B.S, B.S.monarch).startsWith("The Helmsman"), "custom title not used in styling");
+  ok(!/\s(I|II|III)\b/.test(sandbox.styled(B.S, B.S.monarch)), "a president was given a regnal numeral");
 }
 
-const fin = B.S;
-console.log(`  clicks: ${clicks.toLocaleString()}   exceptions: ${thrown}`);
-if (fin) console.log(`  reached year ${fin.year} (turn ${fin.turn}), regime ${fin.regime}, era ${fin.era}`);
-console.log(`  phases visited (${phasesSeen.size}): ${[...phasesSeen].sort().join(", ")}`);
+/* ---- an office of state given to someone who is not family ---- */
+{
+  S = freshGame();
+  B.S.gov.cabinet = "Privy Council";
+  sandbox.courtiers(B.S);
+  B.S._rolePick = "marshal";
+  B.S.phase = "rolepick";
+  try { sandbox.render(); } catch (e) { fail(`rolepick: render threw: ${e.message}`); }
+  const who = document.querySelectorAll("[data-rolewho]");
+  ok(who.length > 0, "rolepick: no candidates offered for a vacant office");
+  const courtBtn = who.find(b => String(b.attrs["data-rolewho"]).charAt(0) === "c");
+  ok(!!courtBtn, "rolepick: the council put forward no non-royal candidate");
+  if (courtBtn) {
+    const cid = parseInt(String(courtBtn.attrs["data-rolewho"]).slice(1), 10);
+    try { courtBtn.onclick(); } catch (e) { fail(`rolepick: appointing threw: ${e.message}`); }
+    const h = sandbox.roleHolder(B.S, "marshal");
+    ok(h && h.id === cid,
+       `rolepick: appointing a courtier did not stick (office holder: ${h ? h.name : "still vacant"})`);
+  }
+}
+
+/* A country in the state Zandaria was in when the revolution came: late era,
+   legitimacy gone, stability gone, every pressure fed by the collapse itself.
+   A healthy state transitions cleanly; that was never the bug. */
+function wrecked() {
+  const st = freshGame();
+  st.era = "masses"; st.eraIdx = 7;
+  for (let i = 0; i < 7; i++) if (Array.isArray(st.erasTaken)) st.erasTaken.push(i);
+  st.stability = 28; st.legitimacy = 22; st.development = 70; st.military = 55;
+  st.treasury = -60; st.debt = 60;
+  st._pressOn = true;
+  if (st.facs.workers) { st.facs.workers.present = true; st.facs.workers.strength = 30; st.facs.workers.mood = 22; }
+  st.facs.peasantry.mood = 20; st.facs.merchants.mood = 30; st.facs.reformers.mood = 18;
+  /* pressures integrate over decades; setting the stats is not enough */
+  for (let i = 0; i < 40; i++) sandbox.tickPressures(st, 5);
+  return st;
+}
+function press(st) {
+  return ["military","radical","constitutional","restorationist"]
+    .map(p => `${p.slice(0,4)}=${Math.round(sandbox.pressureOf(st, p))}`).join(" ");
+}
+
+/* ---- a people's republic must survive its own founding ---- */
+for (const branch of ["moderate", "terror"]) {
+  S = wrecked();
+  try { sandbox.applyTransition(B.S, "people"); }
+  catch (e) { fail(`people/${branch}: applyTransition threw: ${e.message}`); continue; }
+  ok(B.S.regime === "people", `people/${branch}: transition did not install a people's republic`);
+  B.S.phase = "terror";
+  try { sandbox.render(); } catch (e) { fail(`terror: render threw: ${e.message}`); }
+  const btn = document.querySelectorAll("[data-terror]").find(b => b.attrs["data-terror"] === branch);
+  ok(!!btn, `terror: the ${branch} branch was not offered`);
+  if (btn) {
+    try { btn.onclick(); } catch (e) { fail(`terror/${branch}: threw: ${e.message}`); }
+    ok(B.S.regime === "people",
+       `terror/${branch}: the people's republic ended in the same turn it began (now ${B.S.regime})`);
+    invariants(B.S, `terror/${branch}`);
+    /* and the very next turn must not undo it either */
+    for (let i = 0; i < 2; i++) sandbox.tickPressures(B.S, 5);
+    const t = sandbox.transitionReady(B.S);
+    ok(!t || t.jacquerie,
+       `terror/${branch}: a rupture was already armed two ticks after the founding ` +
+       `(${t && t.id} -> ${t && t.target} at ${t && t.v}) [${press(B.S)}]`);
+  }
+}
+
+/* ---- and must survive a few turns of ordinary weather ---- */
+{
+  S = wrecked();
+  sandbox.applyTransition(B.S, "people");
+  let held = 0;
+  for (let i = 0; i < 3; i++) {
+    try { sandbox.beginTurn(false); } catch (e) { fail(`people: beginTurn threw: ${e.message}`); break; }
+    if (B.S.regime === "people") held++;
+    invariants(B.S, `people turn ${i + 1}`);
+  }
+  ok(held === 3, `people: fell out of its own regime after ${held} turn(s) — a revolution needs a honeymoon`);
+}
+
+/* ---- nothing of the old regime may be inherited by the new one ---- */
+{
+  S = freshGame();
+  B.S.regency = { id: 9999, name: "A Test Regent", style: "Regent of the Realm" };
+  B.S._minority = true;
+  sandbox.installRepublic(B.S, false);
+  ok(!B.S.regency, "teardown: a republic inherited the monarchy's regency");
+  ok(!B.S._minority, "teardown: a republic inherited the monarchy's minority");
+}
+{
+  S = freshGame();
+  sandbox.installPeoples(B.S, "revolution");
+  const partyBefore = (B.S.gov.institutions || []).length;
+  sandbox.installRepublic(B.S, false);
+  const ghosts = (B.S.gov.institutions || []).filter(i => /party|congress|presidium/i.test(i.name || ""));
+  ok(ghosts.length === 0,
+     `teardown: the party survived into the republic (${ghosts.map(g => `${g.name} ${g.power}`).join(", ")})`);
+  ok((B.S.gov.institutions || []).length >= 1,
+     `teardown: the republic has no legislature at all (had ${partyBefore} before)`);
+  const est = B.S.facs.aristocracy, cl = B.S.facs.clergy;
+  ok(est && est.present, "teardown: the aristocracy stayed abolished after the people's republic ended");
+  ok(cl && cl.present, "teardown: the clergy stayed abolished after the people's republic ended");
+  invariants(B.S, "people -> republic teardown");
+}
+
+/* ---- the head of a republic does not die like a king ---- */
+{
+  S = freshGame();
+  sandbox.installRepublic(B.S, false);
+  const deadPres = B.S.monarch.name;
+  B.S.monarch.alive = false;
+  try { sandbox.endTurn(); } catch (e) { fail(`republic death: endTurn threw: ${e.message}`); }
+  ok(B.S.phase !== "succession" && B.S.phase !== "housefate",
+     `republic death: a dead president routed into the dynastic succession screen (phase ${B.S.phase})`);
+  ok(B.S.monarch && B.S.monarch.alive && B.S.monarch.name !== deadPres,
+     "republic death: no successor took the oath");
+  ok(B.S.regime === "republic", `republic death: the republic ended with its president (now ${B.S.regime})`);
+  const style = B.S.gov.crown.titleBase;
+  ok((B.S.lineage || []).some(l => l.name === deadPres && l.title === style),
+     `republic death: the dead head of state was not recorded on the roll under their own style (${style})`);
+  invariants(B.S, "republic succession");
+}
+
+/* ---- the credit the sidebar promises is the credit you may spend ---- */
+{
+  S = freshGame();
+  B.S._creditBonus = 200; B.S.treasury = -80; B.S.debt = 80;
+  const shown = Math.max(0, 40 + (B.S._creditBonus || 0) + B.S.treasury);
+  const act = { id: "__test", cost: { gold: -20 } };
+  ok(shown >= 20, "credit: test setup wrong");
+  ok(sandbox.affordable(B.S, act),
+     `credit: the sidebar offered ${shown} of credit and the court refused a ${20} gold action`);
+}
+
+/* ---- a title is a historical fact, not a view of the present ---- */
+{
+  S = freshGame();
+  const wasKing = sandbox.styled(B.S, B.S.monarch);
+  ok(/^(King|Queen)\b/.test(wasKing), `titles: founding sovereign not styled by the founding title (${wasKing})`);
+  B.S.lineage.push({ id: B.S.monarch.id, name: B.S.monarch.name, regnal: B.S.monarch.regnal,
+                     house: B.S.monarch.house, gender: B.S.monarch.gender,
+                     title: B.S.gov.crown.titleBase, regime: B.S.regime });
+  sandbox.applyTransition(B.S, "republic");
+  const l = B.S.lineage[B.S.lineage.length - 1];
+  ok(l.title === "King",
+     `titles: a past monarch was retitled by the present regime (recorded as ${l.title || "nothing"})`);
+}
+/* =====================================================================
+   CHAOS — five passes.
+
+   The old harness played one monarchy and reported no errors, which is
+   exactly how a broken republic shipped. A monkey that never reaches a
+   screen cannot find the bug on it. So: one pass per regime, started
+   inside that regime, plus a churn pass that walks the transition graph
+   under load.
+
+   The monkey is also nudged toward the continue button, or it spends
+   six thousand clicks admiring the same court and reaching turn 21.
+===================================================================== */
+const ALL_PHASES = [
+  "advance","chname","civilpick","congress","convention","court","designate",
+  "dynastic","dyncourt","election","ended","event","housefate","juntaexit",
+  "match","naming","outcome","pmname","quiet","regentpick","repvote",
+  "rolepick","succession","terror","tidings","transition",
+];
+
+const seenEverywhere = new Set();
+const passReports = [];
+
+function runChaos(label, steps, setup, churn) {
+  const before = failures;
+  let clicks = 0, dead = 0, thrown = 0, forced = 0;
+  const phases = new Set();
+
+  S = freshGame();
+  try { setup && setup(); } catch (e) { fail(`${label}: setup threw: ${e.message}`); return; }
+  try { sandbox.render(); } catch (e) { fail(`${label}: initial render threw: ${e.message}`); return; }
+
+  for (let step = 0; step < steps; step++) {
+    const cur = B.S;
+    if (cur) {
+      phases.add(cur.phase); seenEverywhere.add(cur.phase);
+      invariants(cur, `${label} step ${step} (phase ${cur.phase})`);
+    }
+
+    /* walk the graph under load: shove the state into another regime
+       every so often and keep clicking as if nothing happened */
+    if (churn && cur && clicks && clicks % churn === 0) {
+      const others = REGIMES.filter(r => r !== cur.regime);
+      const to = others[Math.floor(rnd() * others.length)];
+      try {
+        sandbox.applyTransition(cur, to); forced++;
+        invariants(B.S, `${label}: forced ${cur.regime} -> ${to}`);
+        sandbox.render();
+      } catch (e) { fail(`${label}: forced transition to ${to} threw: ${e.message}`); }
+    }
+
+    const HEADER = ["btnSave", "btnLoad", "btnNew"];   /* save/load/reset are not play */
+    const all = registry.filter(e => typeof e.onclick === "function" && !HEADER.includes(e.attrs.id));
+    if (!all.length) {
+      dead++;
+      try { sandbox.render(); } catch (e) { fail(`${label}: render threw at step ${step}: ${e.message}`); break; }
+      if (dead > 40) { fail(`${label}: no clickable element for 40 steps at phase ${cur && cur.phase}`); break; }
+      continue;
+    }
+    dead = 0;
+
+    /* 45% of the time take the continue button if one is offered — enough
+       to push the centuries along, not so much that nothing else is tried */
+    const conts = all.filter(e => e.classList.contains("cont"));
+    const pool = (conts.length && rnd() < 0.45) ? conts : all;
+    const b = pool[Math.floor(rnd() * pool.length)];
+    const tag = Object.keys(b.attrs).find(k => k.startsWith("data-")) || b.attrs.id || "?";
+    actionsFired[tag] = (actionsFired[tag] || 0) + 1;
+    clicks++;
+    try { b.onclick(); } catch (e) {
+      thrown++;
+      if (thrown <= 6) fail(`${label}: click ${tag} at step ${step} (phase ${cur && cur.phase}): ${e.message}`);
+    }
+    if (failures - before > 60) { console.error(`  ${label}: too many failures — stopping this pass`); break; }
+  }
+
+  const fin = B.S;
+  passReports.push({ label, clicks, thrown, phases, forced,
+                     year: fin && fin.year, turn: fin && fin.turn,
+                     regime: fin && fin.regime, fails: failures - before });
+  console.log(`  ${label.padEnd(10)} clicks ${String(clicks).padStart(5)} · ` +
+              `exceptions ${String(thrown).padStart(3)} · ` +
+              `${fin ? `to ${fin.year} (turn ${fin.turn}), ended ${fin.regime}` : "no state"}` +
+              `${forced ? ` · ${forced} forced transitions` : ""}` +
+              ` · ${phases.size} phases · ${failures - before} failures`);
+}
+
+const actionsFired = {};
+const PASS = Math.max(400, Math.floor(STEPS / 5));
+console.log(`\n— chaos: 5 passes × ${PASS.toLocaleString()} steps, seed ${SEED} —`);
+
+runChaos("monarchy", PASS, null, 0);
+runChaos("junta",    PASS, () => install("junta"), 0);
+runChaos("republic", PASS, () => install("republic"), 0);
+runChaos("people",   PASS, () => install("people"), 0);
+runChaos("churn",    PASS, null, 120);
+
+/* ---------- coverage: which screens did the monkey never open? ---------- */
+const never = ALL_PHASES.filter(p => !seenEverywhere.has(p));
+console.log(`\n— coverage —`);
+console.log(`  phases reached (${seenEverywhere.size}/${ALL_PHASES.length}): ${[...seenEverywhere].sort().join(", ")}`);
+if (never.length) console.log(`  NEVER REACHED (${never.length}): ${never.join(", ")}`);
+else console.log("  every phase reached at least once.");
 
 console.log(`\n${checks.toLocaleString()} checks, ${failures} failures`);
 if (failures) { console.error("HARNESS FAILED"); process.exit(1); }
