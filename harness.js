@@ -565,6 +565,35 @@ console.log("\n— targeted screens —");
   ok(B.S.stability === t0 && B.S.phase === "dyncourt",
      "heirage: a stale click from another phase still applied the beat");
 
+  /* a branch is named for the blood, and a couple share one branch */
+  {
+    S = freshGame();
+    const stb = B.S;
+    stb.monarch.parents = stb.monarch.parents || [9001, 9002];
+    const sis = sandbox.makePerson(stb, "sibling", "f", 40, null, stb.monarch.parents.slice());
+    const hus = sandbox.makePerson(stb, "inlaw", "m", 38);
+    hus.marriedIn = true;
+    sis.spouseId = hus.id; hus.spouseId = sis.id;
+    stb.family.push(sis, hus);
+    ok(sandbox.isBlood(stb, sis), "branch: the sovereign's sister is not being read as blood");
+    ok(!sandbox.isBlood(stb, hus), "branch: a man who married in is being read as blood");
+    ok(sandbox.branchAnchor(stb, hus).id === sis.id,
+       "branch: the branch anchored on the husband rather than the sister");
+    ok(sandbox.branchNameFor(stb, hus) === `${sis.name}'s line`,
+       `branch: named "${sandbox.branchNameFor(stb, hus)}", want "${sis.name}'s line"`);
+
+    /* drive a turn so the drift actually assigns branches */
+    sis.age = 44; hus.age = 44;
+    [sis, hus].forEach(p => { if (sandbox.shouldCadet(stb, p)) { p.cadet = true;
+      const a = sandbox.branchAnchor(stb, p);
+      if (a.id !== p.id && a.branch) p.branch = a.branch;
+      else { p.branch = sandbox.branchNameFor(stb, p); if (a.id !== p.id) a.branch = p.branch; } } });
+    ok(sis.branch === hus.branch,
+       `branch: the couple were split into "${sis.branch}" and "${hus.branch}"`);
+    ok(sis.branch === `${sis.name}'s line`,
+       `branch: the shared branch is "${sis.branch}", want the sister's`);
+  }
+
   /* a brother heir must not be offered nonsense */
   {
     S = freshGame();

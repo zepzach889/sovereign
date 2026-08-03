@@ -1,58 +1,33 @@
 # Sovereign — changelog
 
-## v12.9 — the panels behave
+## v12.10 — the state bar, and branches named for the blood
 
-### The pinned block
+### Pinning the panels was the wrong idea
 
-Pinning the state of the realm was right. Pinning *all* of it, with a
-transparent backdrop, over a house of seventeen, was not.
+Pinning both full panels put four hundred pixels of furniture above every
+decision, and capping them then squeezed all of it into a scrolling letterbox —
+worse than either. The thing worth keeping on screen was never the panels; it is
+the half-dozen facts you look up while deciding. That fits on one line.
 
-- **Opaque now** — it sits on the console's own colour, so nothing scrolls
-  visibly through it.
-- **Capped at two fifths of the viewport** (a third on shorter screens) and
-  scrolls inside itself, so the play options can never be pushed off the bottom.
-- **The royal family keeps its own leash** — past nine rows the list scrolls
-  within the panel rather than growing without limit.
-- **A fold button**, if you would rather have the whole thing out of the way.
+**The state bar** is now pinned, with the phase strip: sovereign and age, house,
+heir, crown power, the ministry if there is one, treasury and net per turn,
+legitimacy, stability. Regency and an empty succession show in red.
 
-### A branch is a family, not a name
+The full Government and Royal Family panels return to normal flow at full
+height, where a large dynasty can be as long as it likes. The family list only
+takes a scroll of its own past twenty-two rows.
 
-Two things were wrong with the cadet lines.
+### A branch is named for the blood
 
-- **Children stayed at court after their parents left it**, so the royal family
-  filled with nieces and nephews whose parents were nowhere to be seen. A child
-  now goes into their parents' branch, and a spouse follows the person they
-  married.
-- **Expanding a branch showed only the person it was named after.** It now lists
-  every member: their standing to the crown, their age, whom they married, and
-  their children by name.
+The line ran through Augusta, the sovereign's sister. It was being called
+Albert's line, after the man she married — because whichever of them happened to
+drift into a branch first got to name it. Worse, the couple were split into two
+separate branches with the same children listed under each.
 
-### The heir, and what you can sensibly do with them
-
-A brother was being offered marriage into his own line, which is not a policy.
-Coming-of-age now distinguishes three quite different problems:
-
-- **A child** — a successor. Schooling, a command, a progress, or neglect.
-- **A brother or sister** — a successor *and* a succession crisis in waiting,
-  because the line runs through them and they have no children. If unmarried,
-  they can now be **married without delay to secure the line**, which is the
-  thing every court in the position actually did.
-- **A nephew or cousin** — a claim the country has no feeling about. Adoption
-  into the household, or marriage to one of the sovereign's own children, which
-  is now only offered when there is somebody to marry, and names them.
-
-The heir's kind is derived from the parent graph rather than the `rel` label,
-because those labels are recomputed on every render and are not a thing to make
-decisions on.
-
-### More suits pressed
-
-Three to five matches now, not one to three, drawn from six kinds rather than
-three: the foreign crown, the great house, the love match, a house the hierarchs
-have blessed, new money with a pedigree under construction, and a family that
-has given the realm three generations of officers. The field is shuffled, so the
-same three do not always survive the trim. Every new chip is wired to a real
-effect.
+- Descent decides the name. A person who married in joins their spouse's line;
+  they do not found a rival one.
+- A married couple is one row, and their children are listed once.
+- Branches recorded wrongly under the old rule are repaired on the next turn.
 
 ---
 
