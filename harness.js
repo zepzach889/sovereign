@@ -469,6 +469,225 @@ console.log("\n— targeted screens —");
   }
 }
 
+/* ---- works no longer cost you an advance ---- */
+{
+  S = freshGame();
+  const st = B.S;
+  st.treasury = 900; st.knowledge = 900;
+  st.phase = "advance"; st._advBought = false; st._worksBuilt = 0;
+  try { sandbox.render(); } catch (e) { fail(`advance: render threw: ${e.message}`); }
+  const works = document.querySelectorAll("[data-buywork]");
+  ok(works.length > 0, "advance: no works offered with a full treasury");
+  if (works.length) {
+    try { works[0].onclick(); } catch (e) { fail(`advance: founding a work threw: ${e.message}`); }
+    ok(!B.S.phaseDone.advance, "advance: founding a work ended the advancement phase");
+    ok(!B.S._advBought, "advance: founding a work consumed the turn's advance");
+    /* and you can found another */
+    B.S.phase = "advance"; B.S.result = null;
+    try { sandbox.render(); } catch (e) { fail(`advance: second render threw: ${e.message}`); }
+    const again = document.querySelectorAll("[data-buywork]");
+    ok(again.length > 0, "advance: a second work could not be founded in the same turn");
+    ok((B.S._worksBuilt || 0) >= 1, "advance: works founded this turn were not counted");
+  }
+  /* one advance a turn, though */
+  S = freshGame();
+  const st2 = B.S;
+  st2.treasury = 900; st2.knowledge = 900; st2.phase = "advance";
+  st2._advBought = false;
+  sandbox.render();
+  const advs = document.querySelectorAll("[data-buyadv]").filter(b => !("disabled" in b.attrs));
+  if (advs.length) {
+    advs[0].onclick();
+    ok(B.S._advBought, "advance: buying an advance did not spend the turn's advance");
+    B.S.phase = "advance"; B.S.result = null;
+    sandbox.render();
+    const left = document.querySelectorAll("[data-buyadv]").filter(b => !("disabled" in b.attrs));
+    ok(left.length === 0, `advance: ${left.length} advances still buyable after one was taken`);
+    ok(document.querySelectorAll("[data-buywork]").length > 0,
+       "advance: taking an advance also locked out the works");
+  }
+  invariants(B.S, "after advancement");
+}
+
+/* ---- the heir comes of age, and a collateral heir is a different problem ---- */
+{
+  S = freshGame();
+  const st = B.S;
+  const sp = sandbox.makePerson(st, "spouse", st.monarch.gender === "m" ? "f" : "m", 40);
+  sp.spouseId = st.monarch.id; st.monarch.spouseId = sp.id; st.family.push(sp);
+  const kid = sandbox.makePerson(st, "child", "m", 18, null, [st.monarch.id, sp.id]);
+  st.family.push(kid);
+  st._heirAge = kid.id; st.phase = "heirage";
+  try { sandbox.render(); } catch (e) { fail(`heirage: render threw: ${e.message}`); }
+  let opts = document.querySelectorAll("[data-heirage]");
+  ok(opts.length >= 4, `heirage: only ${opts.length} options for a direct heir`);
+  ok(!opts.some(b => b.attrs["data-heirage"] === "adopt_in"),
+     "heirage: a direct heir was offered adoption into the household");
+
+  /* a collateral heir gets the two extra answers */
+  S = freshGame();
+  const st2 = B.S;
+  const neph = sandbox.makePerson(st2, "nephew", "m", 18);
+  st2.family.push(neph);
+  st2._heirAge = neph.id; st2.phase = "heirage";
+  sandbox.render();
+  opts = document.querySelectorAll("[data-heirage]");
+  ok(opts.some(b => b.attrs["data-heirage"] === "adopt_in"),
+     "heirage: a collateral heir was not offered the household");
+  ok(opts.some(b => b.attrs["data-heirage"] === "bind"),
+     "heirage: a collateral heir could not be married into the direct line");
+  const pick = opts.find(b => b.attrs["data-heirage"] === "adopt_in");
+  try { pick.onclick(); } catch (e) { fail(`heirage: choosing threw: ${e.message}`); }
+  ok(!B.S._heirAge, "heirage: the flag was not cleared, so the beat will fire forever");
+  invariants(B.S, "after heirage");
+
+  /* a dead or missing heir must not loop the phase back into itself */
+  S = freshGame();
+  B.S._heirAge = 987654; B.S.phase = "heirage";
+  try { sandbox.render(); } catch (e) { fail(`heirage: a missing heir recursed: ${e.message}`); }
+  ok(!B.S._heirAge, "heirage: a missing heir left the flag set");
+}
+
+/* ---- the household is the household, not the family reunion ---- */
+{
+  S = freshGame();
+  let st = B.S;
+  const sp = sandbox.makePerson(st, "spouse", st.monarch.gender === "m" ? "f" : "m", 30);
+  sp.spouseId = st.monarch.id; st.monarch.spouseId = sp.id; st.family.push(sp);
+  for (let i = 0; i < 6; i++)
+    st.family.push(sandbox.makePerson(st, "child", "m", 8, null, [st.monarch.id, sp.id]));
+  const smallBill = sandbox.upkeep(st);
+  /* now bury the realm in distant relatives */
+  for (let i = 0; i < 40; i++) {
+    const k = sandbox.makePerson(st, "cousin", "f", 40);
+    k.cadet = true; st.family.push(k);
+  }
+  const bigBill = sandbox.upkeep(st);
+  ok(bigBill === smallBill,
+     `household: forty cadets changed the civil list from ${smallBill} to ${bigBill}; they should cost nothing`);
+  ok(sandbox.householdSize(st) < st.family.filter(p => p.alive).length,
+     "household: every living relative is still on the books");
+
+  /* and the cadets are not weddings you have to arrange */
+  st.family.forEach(p => { if (p.cadet) { p.spouseId = null; p.age = 25; } });
+  st.phase = "dyncourt";
+  try { sandbox.render(); } catch (e) { fail(`household: dyncourt render threw: ${e.message}`); }
+  const weds = document.querySelectorAll("[data-dcwed]");
+  ok(weds.length <= 8, `household: ${weds.length} marriages queued for your personal attention`);
+}
+
+/* ---- kin actually drift into branches ---- */
+{
+  S = freshGame();
+  const st = B.S;
+  const unc = sandbox.makePerson(st, "uncle", "m", 44);
+  st.family.push(unc);
+  ok(sandbox.shouldCadet(st, unc), "cadet: a 44-year-old uncle should have his own line by now");
+  const kid = sandbox.makePerson(st, "child", "m", 12, null, [st.monarch.id, 999]);
+  st.family.push(kid);
+  ok(!sandbox.shouldCadet(st, kid), "cadet: the sovereign's own child was pushed out of the household");
+  const h = sandbox.heirOf(st);
+  if (h) ok(!sandbox.shouldCadet(st, h), "cadet: the heir was pushed out of the household");
+}
+
+/* ---- loyalty is a real second axis, and it decides who holds a department ---- */
+{
+  S = freshGame();
+  const st = B.S;
+  st.gov.cabinet = "Privy Council";
+  const f = sandbox.officeField(st, "chancellor");
+  ok(f.every(c => c.loyalty != null), "loyalty: a candidate arrived without a loyalty");
+  const royals = f.filter(c => c.royal), outs = f.filter(c => !c.royal);
+  if (royals.length && outs.length) {
+    const rl = royals.reduce((a, c) => a + c.loyalty, 0) / royals.length;
+    const ol = outs.reduce((a, c) => a + c.loyalty, 0) / outs.length;
+    ok(rl > ol, `loyalty: blood (${rl.toFixed(0)}) should be more loyal than strangers (${ol.toFixed(0)})`);
+  }
+
+  /* a disloyal officer under a governing ministry is not the crown's */
+  st.court = [{ id: 91001, name: "Clever", age: 45, alive: true, job: "chancellor",
+                bloc: "merchants", label: "a lawyer", skill: 90, loyalty: 30 }];
+  st.pm = { office: "PM", bloc: "merchants", holder: "X", age: 50 };
+  st.gov.crown.power = 40;
+  ok(!sandbox.officeHeldByCrown(st, "chancellor"),
+     "loyalty: a disloyal officer answered the palace under a governing ministry");
+  const t0 = st.treasury; sandbox.officeUpkeep(st);
+  ok(st.treasury === t0, "loyalty: an officer who is not yours still filled your treasury");
+  st.court[0].loyalty = 95;
+  const t1 = st.treasury; sandbox.officeUpkeep(st);
+  ok(st.treasury > t1, "loyalty: a loyal, able officer did nothing");
+}
+
+/* ---- the election explains itself ---- */
+{
+  S = freshGame();
+  const st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 20, rights: ["tax"] });
+  const er = sandbox.runElection();
+  ok(er.standings.every(x => x.mood != null && x.strength != null && x.swing != null),
+     "election: the standing was not recorded, so an upset cannot be read");
+  ok(er.expected != null, "election: no expected winner computed");
+  const top = er.standings[0];
+  ok(Math.abs(top.score - (top.base + top.swing)) <= 1,
+     "election: the arithmetic shown does not add up to the score");
+}
+
+/* ---- the development ceiling rises with the age ---- */
+{
+  S = freshGame();
+  const st = B.S;
+  st.development = 100;
+  st.eraIdx = 0;
+  const early = sandbox.devCap(st);
+  st.eraIdx = 6;
+  const late = sandbox.devCap(st);
+  ok(late > early, `development: the ceiling never rises (${early} -> ${late})`);
+  st.development = 100;
+  sandbox.raiseDevelopment(st, 6);
+  ok(st.development > 100, "development: sponsoring trade past 100 still does nothing");
+  st.development = 150;
+  sandbox.lowerDevelopment(st, 5);
+  ok(st.development === 145, `development: a plague clamped a rich realm to ${st.development}`);
+}
+
+/* ---- nobody reaches 113 any more ---- */
+{
+  ok(sandbox.mortalityChance(100, 5) === 1, "mortality: a hundred-year-old is not certain to die");
+  ok(sandbox.mortalityChance(95, 5) > 0.5, "mortality: the tail past ninety is still too flat");
+  ok(sandbox.mortalityChance(40, 5) < 0.2, "mortality: the ceiling leaked into ordinary ages");
+}
+
+/* ---- newborns are not all born on the first of the year ---- */
+{
+  const ages = new Set();
+  for (let i = 0; i < 60; i++) {
+    S = freshGame(); const st = B.S;
+    const sp = sandbox.makePerson(st, "spouse", st.monarch.gender === "m" ? "f" : "m", 24);
+    sp.spouseId = st.monarch.id; st.monarch.spouseId = sp.id; st.family.push(sp);
+    st.monarch.age = 26;
+    sandbox.maybeBirth(5);
+    st.family.filter(p => p.rel === "child").forEach(c => ages.add(c.age));
+  }
+  ok(ages.size > 1, `birth ages: every newborn entered at the same age (${[...ages].join(",")})`);
+}
+
+/* ---- a chamber that only sits when summoned cannot be dissolved ---- */
+{
+  S = freshGame();
+  const st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 20, rights: ["tax"] });
+  st.pm = { office: "PM", bloc: "aristocracy", holder: "X", age: 50 };
+  st.gov.crown.power = 85;
+  st._sitting = false;
+  ok(sandbox.electionMode(st) === "summons", "sitting: expected a summons cadence here");
+  ok(!sandbox.chamberSitting(st), "sitting: an unsummoned chamber counted as in session");
+  st._sitting = true;
+  ok(sandbox.chamberSitting(st), "sitting: a summoned chamber was still counted as absent");
+  st.gov.institutions.push({ id: "commons", name: "Commons", composition: "commons", power: 10, rights: [] });
+  st._sitting = false;
+  ok(sandbox.chamberSitting(st), "sitting: a chamber on a cycle should always be in session");
+}
+
 /* ---- the offices of state: per-office fields, competence, effects ---- */
 {
   S = freshGame();
@@ -740,7 +959,7 @@ for (const branch of ["moderate", "terror"]) {
 const ALL_PHASES = [
   "advance","chname","civilpick","congress","convention","court","designate",
   "dynastic","dyncourt","election","ended","event","housefate","juntaexit",
-  "match","naming","outcome","pmname","pmpick","pmoffer","quiet","regentpick",
+  "heirage","match","naming","outcome","pmname","pmpick","pmoffer","quiet","regentpick",
   "repvote","rolepick","seatshift","succession","terror","tidings","transition",
 ];
 

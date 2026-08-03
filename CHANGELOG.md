@@ -1,104 +1,85 @@
 # Sovereign — changelog
 
-## v12.5 — the offices of state
+## v12.7 — the two things I owed you
 
-### Regressions fixed (all five caused by v12.4)
+### Works and advances are different acts
 
-Moving the ministry earlier — born with the first chamber rather than with the
-crown's defeat — broke three things keyed to *the existence of a ministry* as
-shorthand for *parliamentary government*. They used to be the same event.
+Buying knowledge and building capacity were competing for one slot, so founding
+a second Scriptorium cost you an age's worth of advance. They are not the same
+kind of decision and should not be priced against each other.
 
-- **"Responsible government" announced at 74% crown power.** The milestone
-  tested `!!S.pm`. Now tests `pmGoverns(S)`.
-- **"A contest of arms is unthinkable now" in 1665.** The text branched on
-  `S.pm`. The age of settling crowns by war now closes on a real condition —
-  a late era, or a charter plus a standing state — not on having a Chancellor.
-- **The 70%+ ministry pick was unreachable.** Every route into a first ministry
-  ran through `doPMName`, which seated the election winner and never opened the
-  crown's field. This is why the `pmpick` screen existed and was never seen.
-- **Dissolving under summons did nothing.** The button was live, cost stability,
-  and no election followed, because `proceedToElection` returns early unless the
-  cadence is a cycle.
-- **Refusing a ministry and winning still handed you the country's choice.**
-  Now routes into the crown's field, which was the entire point of the right.
+- **One advance a turn**, because knowledge is the limiter. After you take it,
+  the advances grey out and say so.
+- **As many works as the treasury will bear**, because gold is the limiter.
+  Founding one no longer ends the phase or spends your advance.
+- An explicit way out of the phase, since nothing closes it for you now.
 
-### Bugs fixed
+### The heir comes of age
 
-- The adopted heir was created with no parents. Every relation label and the
-  whole family tree derive from the parent graph, so they read as a cousin from
-  nowhere and then acceded to an empty court, consort included. They are now
-  adopted *into* the house, with recorded parents.
-- An abdicating sovereign was killed outright. They now step sideways into the
-  family and are marked as having laid down the crown.
-- The sovereign appeared in the Royal Family box only when they happened to have
-  a revealed trait or an active regent. Hence the flicker. Always shown now.
+A new beat, once per heir, when they cross into adulthood under a monarchy. Four
+options for a direct heir and six for a collateral one, because a brother's
+child who inherits is a genuinely different problem from a son — the claim is
+sound on paper, and paper was never the difficulty.
 
-### The offices of state
+- **Schooled in law and statecraft** — produces sovereigns who are hard to lie to.
+- **Given a command on the frontier** — the army meets its future sovereign, in
+  weather, and forms a view. That view matters the first time somebody suggests
+  a coup.
+- **Sent on progress through the provinces** — expensive, and the far country
+  remembers it for a generation.
+- **Left to their own household** — nothing spent, nothing decided, and they
+  arrive at the throne a stranger to everyone.
 
-Five posts now, not four — Keeper of the Seals joins the Marshal, the Primate,
-the Governor and the Chancellor. The same five under every regime; only the
-names and the appointer change. A Commissar for the Plan is the Chancellor of
-the Exchequer with a different hat and a worse century.
+And for a collateral heir only:
 
-- **A separate candidate field per office**, generated fresh per vacancy and
-  stable within a turn. The men who might run the treasury are not the men who
-  might run the army, and sometimes there is nobody good for either.
-- **Competence**, shown on every candidate, from *outstanding* to *a disaster
-  waiting*. A trained man is better at his own department; royal kin are usually
-  worse, and cost you elsewhere for the privilege.
-- **Officers now do something, every turn.** A capable holder helps their
-  department and discounts work in it by 12%; an incompetent one does the
-  reverse. Appointing your brother to the Exchequer is now a decision.
-- **The council appears in the Government panel**, under every regime, whether
-  or not the holder is related to anybody.
-- *Appoint capable ministers* is retired. The council is the council.
+- **Brought into the household and styled the direct heir** — supplies the
+  appearance of inevitability, at the price of every family that hoped otherwise.
+- **Married into the direct line** — two claims made one, and any standing rival
+  claim settled with it.
 
-### The rest of the prerogative ladder
+### Caught by the chaos runner
 
-Withhold assent, create peers and grant a pardon are now real actions rather
-than labels. Assent is spendable like the ministry refusal — used three times
-against a chamber that keeps coming back, it stops being a right and becomes a
-quarrel, and then it is over.
+Two bugs in the above, both found by the 6,000-step run rather than by any
+targeted test:
 
-### Fertility
-
-The ceiling was structural: `maybeBirth` rolled once per turn, so five years
-could produce at most one child however generous the odds, and the large-family
-penalty bit at four. Now three rolls per turn, the penalty deferred to seven
-living children, and the wider family breeds properly too — which is why a
-failed line kept finding an empty court.
-
-### Marriage
-
-The count of offers now varies (one to three, never nil) and the terms are drawn
-from what the realm is actually short of: a dowry when the treasury is empty, a
-match into the rival's house when there is a claimant, a house the angriest
-estate would follow. Every chip is wired to a real effect.
-
-### Women in office
-
-Gated at the mass-franchise era and uncommon even then, rising afterward. It was
-previously possible from roughly 1750, which is indefensible in a classroom.
+- The coming-of-age screen recursed infinitely when the heir died between the
+  beat being raised and the screen being drawn.
+- A stale coming-of-age button clicked from the outcome screen applied the beat
+  a second time, over a result that was still pending. `doHeirAge` now refuses
+  to act unless the game is actually in that phase — which is the general fix
+  for that whole class of stale-click bug.
 
 ---
 
 ## Known wrong, on purpose — still to come
 
-- **Provinces are still an estate.** Double-counted against real provinces.
-  Patch-set five.
-- **The commons electorate still contains everybody.** The franchise gate —
-  property / widened / broad / universal, with the peasantry weighted at a
-  fifth, then a half, then three-quarters, then full — is patch-set five.
-- **Reforms still have no base benefit.** The three tiers (of its own motion /
-  upon petition / under duress) are patch-set four.
-- **A ceremonial crown is not yet rewarded.** That reward lives in the
-  legitimacy formula, which is still monarchy-shaped for all four regimes. The
-  hooks are in; the values are provisional.
-- **Legislation from the estates** — the last thing, once the frame is finished.
+**Next, in order:**
+- **Reform bonus tiers** — of its own motion / upon petition / under duress.
+- **The franchise** — property / widened / broad / universal as a weighted gate
+  on the commons; provinces removed as an estate; officers to the upper house.
+- **Legislation** — named bills from the dominant estate, so assent has an object.
+
+**Then the thing everything waits on:**
+- **Legitimacy and revenue.** Regime-specific formulas; the junta ceiling;
+  per-regime routes back up; a grant action for every regime; retrenchment as a
+  costed choice. Until this lands, a ceremonial crown is not rewarded and a
+  people's republic cannot exceed about 39 legitimacy.
+
+**After that:** foreign powers; Eras IX–XII and an answer for knowledge once the
+tree runs out; court options for the workers once they wake, and where "the
+workers wake" sits in the tree; the regime-aware vocabulary pass; the Legacy
+page; the UI rework.
+
+**Parked by agreement:** health and cause of death; constitution-drafting entry
+mode; the deeper culture and religion layer.
+
+## v12.5 — the offices of state
+
+Five posts, per-office candidate fields, competence, the rest of the prerogative
+ladder wired to real actions, fertility rebuilt, variable marriage terms, and the
+era gate on women in office.
 
 ## v12.4 — the constitutional frame
 
-Long-reign toggle; the prerogative ladder; the three ministry bands
-(70+ crown appoints, 50–69 contested with a spendable refusal, below 50 the
-ministry governs and the player follows the power to the desk); summons versus
-a player-set electoral cycle.
+Long-reign toggle; the prerogative ladder; the three ministry bands; summons
+versus a player-set electoral cycle.
