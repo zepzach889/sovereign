@@ -1,33 +1,38 @@
 # Sovereign — changelog
 
-## v12.10 — the state bar, and branches named for the blood
+## v12.11 — three that were mine
 
-### Pinning the panels was the wrong idea
+### The state bar was painted black on black
 
-Pinning both full panels put four hundred pixels of furniture above every
-decision, and capping them then squeezed all of it into a scrolling letterbox —
-worse than either. The thing worth keeping on screen was never the panels; it is
-the half-dozen facts you look up while deciding. That fits on one line.
+`--ink` is the page background. `--bone` is the text colour. I used the first
+for every value in the bar, so the numbers were invisible unless you selected
+them. Corrected, and rebuilt properly: labelled pairs with the label small and
+above, values in bone, warnings in crisis red, two items dropped. Legitimacy now
+goes red under 35, treasury under zero, stability under 30, and an empty
+succession reads as a warning rather than a word.
 
-**The state bar** is now pinned, with the phase strip: sovereign and age, house,
-heir, crown power, the ministry if there is one, treasury and net per turn,
-legitimacy, stability. Regency and an empty succession show in red.
+### The fourth suit was numbered `undefined`
 
-The full Government and Royal Family panels return to normal flow at full
-height, where a large dynasty can be as long as it likes. The family list only
-takes a scroll of its own past twenty-two rows.
+The numeral list stopped at three, and the field runs to five. There was already
+a one-indexed `ROMAN` in `01-names.js` — my duplicate declaration was caught by
+the build's duplicate guard, which is what it is for. The screen also announced
+"three suits are pressed" regardless of how many there were; it now counts.
 
-### A branch is named for the blood
+### Nieces and nephews still at court
 
-The line ran through Augusta, the sovereign's sister. It was being called
-Albert's line, after the man she married — because whichever of them happened to
-drift into a branch first got to name it. Worse, the couple were split into two
-separate branches with the same children listed under each.
+A niece is not a member of the sovereign's household at any age. The rule was
+still letting them stay until twenty-five, and orphans stayed forever because a
+dead parent never drifted into a branch to be followed into. Now: anyone outside
+the sovereign's own children and the heir's household belongs to their parents'
+line, walking up through dead parents to find it — and a parent who died before
+ever having a branch still names one.
 
-- Descent decides the name. A person who married in joins their spouse's line;
-  they do not found a rival one.
-- A married couple is one row, and their children are listed once.
-- Branches recorded wrongly under the old rule are repaired on the next turn.
+### On the tests
+
+Two of the tests I wrote for this were vacuous and I caught them before shipping:
+one read a `.html` property the mini-DOM does not have, so it joined empty
+strings and always passed. The numeral check is now grounded in the numeral
+source itself, and I inverted it to confirm it fails.
 
 ---
 

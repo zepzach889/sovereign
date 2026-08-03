@@ -142,6 +142,7 @@ console.log(`loaded ${manifest.length} modules`);
 vm.runInContext("globalThis.__cultures=CULTURES; globalThis.__titleForms=TITLE_FORMS;", sandbox);
 vm.runInContext("globalThis.__prerogatives=PREROGATIVES;", sandbox);
 vm.runInContext("globalThis.TRAIT_KEYS=TRAIT_KEYS;", sandbox);
+vm.runInContext("globalThis.__roman=ROMAN;", sandbox);
 
 /* Top-level `let` lives in the shared script scope, not on globalThis —
    exactly as it does across <script> tags in the browser. Bridge to it. */
@@ -564,6 +565,55 @@ console.log("\n— targeted screens —");
   try { sandbox.doHeirAge("progress"); } catch (e) { fail(`heirage: stale click threw: ${e.message}`); }
   ok(B.S.stability === t0 && B.S.phase === "dyncourt",
      "heirage: a stale click from another phase still applied the beat");
+
+  /* orphaned nieces belong to their dead parent's line, not to the court */
+  {
+    S = freshGame();
+    const sto = B.S;
+    sto.monarch.parents = sto.monarch.parents || [9101, 9102];
+    const sis2 = sandbox.makePerson(sto, "sibling", "f", 29, null, sto.monarch.parents.slice());
+    sto.family.push(sis2);
+    const niece = sandbox.makePerson(sto, "niece", "f", 5, null, [sis2.id, 9103]);
+    sto.family.push(niece);
+    /* the sister dies before ever drifting into a branch */
+    sis2.alive = false; sis2.diedTurn = 0;
+    ok(sandbox.shouldCadet(sto, niece),
+       "cadet: an orphaned niece was left listed in the sovereign's own household");
+    const b = sandbox.inheritedBranch(sto, niece);
+    ok(b === `${sis2.name}'s line`,
+       `cadet: the orphan's line came out as "${b}", want "${sis2.name}'s line"`);
+
+    /* and no niece or nephew of any age belongs to the household */
+    const babe = sandbox.makePerson(sto, "nephew", "m", 0, null, [sis2.id, 9103]);
+    sto.family.push(babe);
+    ok(sandbox.shouldCadet(sto, babe), "cadet: an infant nephew was kept on the civil list");
+    /* while the sovereign's own children stay put */
+    const own = sandbox.makePerson(sto, "child", "m", 5, null, [sto.monarch.id, 9104]);
+    sto.family.push(own);
+    ok(!sandbox.shouldCadet(sto, own), "cadet: the sovereign's own child was pushed into a branch");
+  }
+
+  /* the suit numerals must not run out before the field does */
+  {
+    S = freshGame();
+    const stn = B.S;
+    stn._matchFor = "self"; stn._matchC = null;
+    const cands = sandbox.matchCandidates(stn, stn.monarch);
+    stn.phase = "match";
+    try { sandbox.render(); } catch (e) { fail(`suits: render threw: ${e.message}`); }
+    const btns = document.querySelectorAll("[data-match]");
+    ok(btns.length >= cands.length, "suits: fewer buttons than candidates");
+    /* every candidate is rendered and carries a real numeral. The mini-DOM
+       gives us attributes, so check the index attribute directly, and check
+       the numeral source separately rather than pretending to read markup. */
+    for (let i = 0; i < cands.length; i++)
+      ok(btns.some(b => b.attrs["data-match"] === String(i)),
+         `suits: candidate ${i} was never rendered`);
+    const numerals = sandbox.__roman || [];
+    for (let i = 0; i < 6; i++)
+      ok(typeof numerals[i + 1] === "string" && numerals[i + 1].length > 0,
+         `suits: no numeral for suit ${i + 1} — this is the 'undefined' bug`);
+  }
 
   /* a branch is named for the blood, and a couple share one branch */
   {
