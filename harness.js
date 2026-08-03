@@ -141,6 +141,7 @@ for (const m of manifest) {
 console.log(`loaded ${manifest.length} modules`);
 vm.runInContext("globalThis.__cultures=CULTURES; globalThis.__titleForms=TITLE_FORMS;", sandbox);
 vm.runInContext("globalThis.__prerogatives=PREROGATIVES;", sandbox);
+vm.runInContext("globalThis.TRAIT_KEYS=TRAIT_KEYS;", sandbox);
 
 /* Top-level `let` lives in the shared script scope, not on globalThis —
    exactly as it does across <script> tags in the browser. Bridge to it. */
@@ -509,7 +510,98 @@ console.log("\n— targeted screens —");
   invariants(B.S, "after advancement");
 }
 
-/* ---- the heir comes of age, and a collateral heir is a different problem ---- */
+/* ---- the heir comes of age: ONE beat, reachable, and escapable ---- */
+{
+  /* the beat must be raised by the existing dynastic machinery, and the
+     old two-option screen must be gone */
+  S = freshGame();
+  let st = B.S;
+  const sp = sandbox.makePerson(st, "spouse", st.monarch.gender === "m" ? "f" : "m", 40);
+  sp.spouseId = st.monarch.id; st.monarch.spouseId = sp.id; st.family.push(sp);
+  const kid = sandbox.makePerson(st, "child", "m", 18, null, [st.monarch.id, sp.id]);
+  st.family.push(kid);
+  const beat = sandbox.dynasticBeat();
+  ok(beat && beat.kind === "ofage", `heirage: the dynastic beat did not raise coming-of-age (got ${beat && beat.kind})`);
+
+  st.dyn = beat; st.phase = "dynastic";
+  try { sandbox.render(); } catch (e) { fail(`heirage: render threw: ${e.message}`); }
+  ok(document.querySelectorAll("[data-dyn=heir_court]").length === 0,
+     "heirage: the old two-option screen is still being offered");
+  let opts = document.querySelectorAll("[data-heirage]");
+  ok(opts.length >= 4, `heirage: only ${opts.length} options for a direct heir`);
+  ok(!opts.some(b => b.attrs["data-heirage"] === "adopt_in"),
+     "heirage: a direct heir was offered adoption into the household");
+
+  /* and clicking must actually move the game on — this is the bug that blocked play */
+  const wasPhase = B.S.phase;
+  try { opts[0].onclick(); } catch (e) { fail(`heirage: choosing threw: ${e.message}`); }
+  ok(B.S.phase !== wasPhase, `heirage: clicking an option left the game in ${B.S.phase} — deadlock`);
+  invariants(B.S, "after heirage");
+
+  /* a collateral heir gets the two extra answers */
+  S = freshGame(); st = B.S;
+  const neph = sandbox.makePerson(st, "nephew", "m", 18);
+  st.family.push(neph);
+  st.dyn = { kind: "ofage", heir: neph }; st.phase = "dynastic";
+  sandbox.render();
+  opts = document.querySelectorAll("[data-heirage]");
+  ok(opts.some(b => b.attrs["data-heirage"] === "adopt_in"),
+     "heirage: a collateral heir was not offered the household");
+  ok(opts.some(b => b.attrs["data-heirage"] === "bind"),
+     "heirage: a collateral heir could not be married into the direct line");
+  const pick = opts.find(b => b.attrs["data-heirage"] === "bind");
+  try { pick.onclick(); } catch (e) { fail(`heirage: binding threw: ${e.message}`); }
+  ok(B.S.phase !== "dynastic" || !B.S.dyn, "heirage: the beat was not cleared and will fire forever");
+  invariants(B.S, "after collateral heirage");
+
+  /* a stale click from another phase must be ignored, not applied twice */
+  S = freshGame(); st = B.S;
+  st.dyn = null; st.phase = "dyncourt";
+  const t0 = st.stability;
+  try { sandbox.doHeirAge("progress"); } catch (e) { fail(`heirage: stale click threw: ${e.message}`); }
+  ok(B.S.stability === t0 && B.S.phase === "dyncourt",
+     "heirage: a stale click from another phase still applied the beat");
+
+  /* every trait written anywhere must be a real trait key — an unknown one
+     took down every render in the game and blocked a whole playthrough */
+  {
+    S = freshGame();
+    const keys = new Set(sandbox.TRAIT_KEYS || []);
+    ok(keys.size > 0, "traits: TRAIT_KEYS did not bridge out");
+    for (const kind of ["statecraft", "command", "progress", "adopt_in", "bind", "leave"]) {
+      S = freshGame();
+      const st2 = B.S;
+      const n = sandbox.makePerson(st2, "nephew", "m", 18);
+      n.trait = null; st2.family.push(n);
+      st2.dyn = { kind: "ofage", heir: n }; st2.phase = "dynastic";
+      try { sandbox.doHeirAge(kind); } catch (e) { fail(`traits: ${kind} threw: ${e.message}`); continue; }
+      const bad = B.S.family.filter(p => p.trait && !keys.has(p.trait));
+      ok(bad.length === 0, `traits: ${kind} wrote an unknown trait "${bad[0] && bad[0].trait}"`);
+      /* and the whole UI must survive it */
+      try { sandbox.render(); } catch (e) { fail(`traits: render after ${kind} threw: ${e.message}`); }
+    }
+  }
+  /* and an unknown key must degrade rather than detonate */
+  {
+    S = freshGame();
+    const p = sandbox.makePerson(B.S, "child", "m", 20);
+    p.trait = "nonsense"; B.S.family.push(p);
+    let shown;
+    try { shown = sandbox.traitShown(p); } catch (e) { fail(`traits: traitShown threw on an unknown key: ${e.message}`); }
+    ok(shown === null, "traits: an unknown key should show nothing, not throw");
+    try { sandbox.render(); } catch (e) { fail(`traits: render threw on an unknown key: ${e.message}`); }
+  }
+
+  /* a dead heir must not deadlock the screen */
+  S = freshGame(); st = B.S;
+  const ghost = sandbox.makePerson(st, "nephew", "m", 18);
+  st.dyn = { kind: "ofage", heir: ghost }; st.phase = "dynastic";
+  try { sandbox.render(); } catch (e) { fail(`heirage: a dead heir threw: ${e.message}`); }
+  ok(B.S.phase !== "dynastic" || !B.S.dyn, "heirage: a dead heir left the beat stuck");
+}
+
+/* ---- superseded block ---- */
+if (false) {
 {
   S = freshGame();
   const st = B.S;
@@ -546,6 +638,8 @@ console.log("\n— targeted screens —");
   B.S._heirAge = 987654; B.S.phase = "heirage";
   try { sandbox.render(); } catch (e) { fail(`heirage: a missing heir recursed: ${e.message}`); }
   ok(!B.S._heirAge, "heirage: a missing heir left the flag set");
+}
+
 }
 
 /* ---- the household is the household, not the family reunion ---- */
@@ -959,7 +1053,7 @@ for (const branch of ["moderate", "terror"]) {
 const ALL_PHASES = [
   "advance","chname","civilpick","congress","convention","court","designate",
   "dynastic","dyncourt","election","ended","event","housefate","juntaexit",
-  "heirage","match","naming","outcome","pmname","pmpick","pmoffer","quiet","regentpick",
+  "match","naming","outcome","pmname","pmpick","pmoffer","quiet","regentpick",
   "repvote","rolepick","seatshift","succession","terror","tidings","transition",
 ];
 

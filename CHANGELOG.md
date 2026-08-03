@@ -1,53 +1,50 @@
 # Sovereign — changelog
 
-## v12.7 — the two things I owed you
+## v12.8 — the blocker
 
-### Works and advances are different acts
+### The deadlock, and what actually caused it
 
-Buying knowledge and building capacity were competing for one slot, so founding
-a second Scriptorium cost you an age's worth of advance. They are not the same
-kind of decision and should not be priced against each other.
+v12.7's coming-of-age beat wrote `h.trait = "able"` — a key that is not in
+`TRAITS`. `traitShown()` then did `TRAITS[p.trait].name` with no guard, so from
+that moment **every render in the game threw**, and no button did anything. The
+chronicle would not open because nothing would open.
 
-- **One advance a turn**, because knowledge is the limiter. After you take it,
-  the advances grey out and say so.
-- **As many works as the treasury will bear**, because gold is the limiter.
-  Founding one no longer ends the phase or spends your advance.
-- An explicit way out of the phase, since nothing closes it for you now.
+Three fixes, because one was not enough:
 
-### The heir comes of age
+- The outcome writes a real trait key.
+- `traitShown()` now returns nothing for an unknown key instead of taking down
+  the entire UI. A bad key should degrade, not detonate.
+- The skill and loyalty rolls added in v12.6 were also reading trait names that
+  do not exist (`able`, `idle`, `loyal`, `ambitious`), so those modifiers had
+  silently never fired. They now use the real traits — and a martial candidate
+  is better at the army, a pious one at the pulpit, a cruel one less trusted.
 
-A new beat, once per heir, when they cross into adulthood under a monarchy. Four
-options for a direct heir and six for a collateral one, because a brother's
-child who inherits is a genuinely different problem from a son — the claim is
-sound on paper, and paper was never the difficulty.
+New tests drive all six coming-of-age outcomes, assert that nothing anywhere
+writes an unknown trait key, and assert the UI survives one if it ever does.
 
-- **Schooled in law and statecraft** — produces sovereigns who are hard to lie to.
-- **Given a command on the frontier** — the army meets its future sovereign, in
-  weather, and forms a view. That view matters the first time somebody suggests
-  a coup.
-- **Sent on progress through the provinces** — expensive, and the far country
-  remembers it for a generation.
-- **Left to their own household** — nothing spent, nothing decided, and they
-  arrive at the throne a stranger to everyone.
+### One coming-of-age beat, not two
 
-And for a collateral heir only:
+There was already an `ofage` beat in the dynastic phase. In v12.7 I built a
+second one beside it and wired mine into `toDynCourt()` — which is called from
+inside render passes, so entering the phase called `render()` from within
+`render()`. That is why you saw the old screen and then the new one.
 
-- **Brought into the household and styled the direct heir** — supplies the
-  appearance of inevitability, at the price of every family that hoped otherwise.
-- **Married into the direct line** — two claims made one, and any standing rival
-  claim settled with it.
+The old two-option screen is gone. The existing beat now renders the new one, so
+there is a single entry point and no re-entrant render. `doHeirAge` also refuses
+to act unless the game is actually in that beat, so a stale button cannot apply
+it twice.
 
-### Caught by the chaos runner
+### Pinned panels
 
-Two bugs in the above, both found by the 6,000-step run rather than by any
-targeted test:
+The government box and the royal family stay put while the decision below them
+scrolls — they are the state of the realm, and you should not have to scroll
+away from them to read a choice. On short screens they release back to normal
+flow rather than eating the viewport.
 
-- The coming-of-age screen recursed infinitely when the heir died between the
-  beat being raised and the screen being drawn.
-- A stale coming-of-age button clicked from the outcome screen applied the beat
-  a second time, over a result that was still pending. `doHeirAge` now refuses
-  to act unless the game is actually in that phase — which is the general fix
-  for that whole class of stale-click bug.
+### Cadet lines, on request
+
+The summary line now has a **show** toggle: branch by branch, with names, ages
+and who is married. Closed by default, which you were right about.
 
 ---
 
