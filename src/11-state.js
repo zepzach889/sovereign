@@ -43,6 +43,10 @@ function newGame(cfg){
     regency:null, rival:null, married:false,
     reforms:[], cooldowns:{}, eventLast:{}, seenMilestones:[],
     legitPen:0, notices:[], pm:null, nextElection:0, _elections:0,
+    /* the constitutional machinery */
+    electionEvery:2,           /* turns between elections once there is a cycle */
+    devQuiet:!!cfg.devQuiet,   /* the long-reign toggle: weather without storms */
+    _seat:"crown", _prerogSpent:{}, _unsummoned:0, _pmRefusals:0, _seatShift:null,
     ui:{chronOpen:false}, _usedCands:[], ancestors:[],
     regime:"monarchy", junta:null, exiles:null, pressure:{}, _militaryLeaned:0, eraIdx:0, knowledge:0, advances:[], works:[], workCount:{}, provinces:[], lostProvinces:[], _know:{}, _advDiscount:1, _newActs:[], _prevActs:[],
     _successions:0,_sameHouseSucc:0,_houseBreaks:0,_regenciesEnded:0,_femaleReigns:0,_reforms:0,_events:0,
@@ -56,6 +60,7 @@ function newGame(cfg){
   /* the founding generation needs recorded parents, or a derived family
      graph reads the founder's own brothers and sisters as strangers */
   S.provinces=newProvinces(S);
+  if(S.devQuiet)S.chronicle.push({year:S.year,text:`In ${S.year}, the chroniclers of ${S.nation} recorded a realm in which no government ever fell — a long reign, kept for the study of it.`});
   const oldKing=PID++, oldQueen=PID++;
   S.monarch.parents=[oldKing,oldQueen];
   // a sibling or two of the founder

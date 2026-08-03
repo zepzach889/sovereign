@@ -16,17 +16,25 @@ function beginTurn(first){
   }
   if(S._regentPick&&!S.regency){ S.phase="regentpick"; return; }
   ensureRegent();
+  maybeTransform(S);
+  if(S._seatShift){ S.phase="seatshift"; return; }
   if(S.notices&&S.notices.length){ S.phase="tidings"; return; }
   proceedToElection(first);
 }
 function afterTidings(){ S.notices=[]; proceedToElection(false); render(); }
 function proceedToElection(first){
+  const mode=electionMode(S);
+  /* No ministry, or a crown that summons rather than schedules — either
+     way nothing goes to the country this season. */
+  if(mode!=="cycle"){ rollEvent(first); return; }
   if(S.pm&&S._minority&&chance(0.45)){
     S._minority=false; S.stability=clamp(S.stability-5);
-    S.chronicle.push({year:S.year,text:`In ${S.year}, the Crown's minority ministry lost the confidence of the chamber and fell.`});
+    S.chronicle.push({year:S.year,text:`In ${S.year}, the ${esc0(S.pm.office)} of the minority lost the confidence of the chamber and fell.`});
     S._electionResult=runElection(); S.phase="election"; return;
   }
-  if(S.pm&&S.turn<S.nextElection&&S.facs[S.pm.bloc].mood<30){
+  /* A crown in personal rule cannot be voted out of its own ministry —
+     the benches may hate the man, but he is the crown's man. */
+  if(S.pm&&!crownAppointsPm(S)&&S.turn<S.nextElection&&S.facs[S.pm.bloc].mood<30){
     S.stability=clamp(S.stability-4);
     S.chronicle.push({year:S.year,text:`In ${S.year}, the ${S.facs[S.pm.bloc].name} benches lost confidence in their own ministry, and the government fell to an early election.`});
     S._electionResult=runElection(); S.phase="election"; return;
@@ -34,16 +42,128 @@ function proceedToElection(first){
   if(S.pm&&S.turn>=S.nextElection){ S._electionResult=runElection(); S.phase="election"; return; }
   rollEvent(first);
 }
+function esc0(x){ return String(x==null?"":x); }
 function afterElection(){
-  const er=S._electionResult; S._elections=(S._elections||0)+1; S.nextElection=S.turn+4;
-  if(er&&er.winner!==S.pm.bloc){ S.pm.bloc=er.winner; S.pm.holder=pmName(); S.pm.age=44+rand(16);
-    S.chronicle.push({year:S.year,text:`In ${S.year}, the election turned the government out: the ${S.facs[er.winner].name} interest took the ministry, and ${S.pm.holder} took office as ${S.pm.office}.`});
-  } else if(er){
+  const er=S._electionResult; S._elections=(S._elections||0)+1;
+  S.nextElection=S.turn+electionEvery(S);
+  S._electionResult=null;
+  if(!S.pm||!er){ checkMilestones(); rollEvent(false); render(); return; }
+  if(er.winner===S.pm.bloc){
     if(S.pm.age>=68){ const old=S.pm.holder; S.pm.holder=pmName(); S.pm.age=44+rand(16);
       S.chronicle.push({year:S.year,text:`In ${S.year}, the ${S.facs[er.winner].name} interest was returned — but ${old}, grown old in office, gave way to ${S.pm.holder}.`});
     } else S.chronicle.push({year:S.year,text:`In ${S.year}, the government of the ${S.facs[er.winner].name} interest was returned at the polls.`});
+    checkMilestones(); rollEvent(false); render(); return;
   }
-  S._electionResult=null; checkMilestones(); rollEvent(false); render();
+  /* The country has spoken. What happens next depends entirely on how much
+     of the constitution the crown still holds. */
+  if(crownAppointsPm(S)){ S._pmField=pmField(S,er.winner); S.phase="pmpick"; render(); return; }
+  if(pmContested(S)&&hasPrerog(S,"ministry")){
+    S._pmOffer={bloc:er.winner,holder:pmName(),age:44+rand(16)};
+    S.phase="pmoffer"; render(); return;
+  }
+  installPm(S,er.winner,null,"chamber");
+  checkMilestones(); rollEvent(false); render();
+}
+
+/* =====================================================================
+   THE MINISTRY
+   One office, three ways of filling it, and the difference between them
+   is the whole constitutional question. The crown's gift, the chamber's
+   choice, or the chamber's choice that the crown cannot refuse.
+   ===================================================================== */
+function pmField(S,winnerBloc){
+  const set=new Set(); S.gov.institutions.forEach(i=>(composition[i.composition]||[]).forEach(k=>set.add(k)));
+  let blocs=[...set].filter(k=>S.facs[k]&&S.facs[k].present);
+  /* whoever carried the chamber is always on the list, whatever else is */
+  if(winnerBloc&&S.facs[winnerBloc]&&blocs.indexOf(winnerBloc)<0)blocs.unshift(winnerBloc);
+  if(!blocs.length)blocs=["aristocracy"];
+  /* the winner first, then whoever else the crown might reach for */
+  blocs.sort((a,b)=>(b===winnerBloc)-(a===winnerBloc)||S.facs[b].strength-S.facs[a].strength);
+  return blocs.slice(0,3).map(k=>({bloc:k,holder:pmName(),age:44+rand(16),winner:k===winnerBloc}));
+}
+function installPm(S,bloc,holder,how){
+  const first=!S.pm;
+  const nm=holder||pmName();
+  if(first) S.pm={office:S._pmOffice||"Prime Minister",bloc,holder:nm,age:44+rand(16)};
+  else { S.pm.bloc=bloc; S.pm.holder=nm; S.pm.age=44+rand(16); }
+  S._pmOffice=S.pm.office;
+  const iname=S.facs[bloc]?S.facs[bloc].name:"governing";
+  if(first){
+    S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, the ${esc0(S.pm.office)} of ${S.nation} was created, and ${nm} of the ${iname} interest was the first to hold it.`});
+  } else if(how==="crown"){
+    S.chronicle.push({year:S.year,text:`In ${S.year}, the Crown named ${nm} of the ${iname} interest ${esc0(S.pm.office)} — the chamber's arithmetic notwithstanding.`});
+  } else {
+    S.chronicle.push({year:S.year,text:`In ${S.year}, the election turned the government out: the ${iname} interest took the ministry, and ${nm} took office as ${esc0(S.pm.office)}.`});
+  }
+  maybeTransform(S);
+}
+function doPmPick(i){
+  const f=(S._pmField||[])[i]; S._pmField=null;
+  if(!f){ checkMilestones(); rollEvent(false); render(); return; }
+  if(!f.winner){
+    /* choosing against the chamber is the prerogative working exactly as
+       designed, and exactly as resented */
+    S.stability=clamp(S.stability-6);
+    S.legitPen=(S.legitPen||0)+4;
+    (composition[(S.gov.institutions[0]||{}).composition]||[]).forEach(k=>{ if(S.facs[k])S.facs[k].mood=clamp(S.facs[k].mood-5); });
+    bumpPressure(S,"constitutional",7);
+  }
+  installPm(S,f.bloc,f.holder,f.winner?"chamber":"crown");
+  checkMilestones(); rollEvent(false); render();
+}
+function doPmAccept(){
+  const o=S._pmOffer; S._pmOffer=null;
+  if(!o){ checkMilestones(); rollEvent(false); render(); return; }
+  S.stability=clamp(S.stability+2);
+  installPm(S,o.bloc,o.holder,"chamber");
+  checkMilestones(); rollEvent(false); render();
+}
+function doPmRefuse(){
+  const o=S._pmOffer; S._pmOffer=null;
+  if(!o){ checkMilestones(); rollEvent(false); render(); return; }
+  const n=(S._pmRefusals=(S._pmRefusals||0)+1);
+  /* every refusal costs more than the last — which is the only reason
+     the prerogative ever actually died */
+  S.stability=clamp(S.stability-4*n);
+  S.legitPen=(S.legitPen||0)+3*n;
+  S.facs[o.bloc].mood=clamp(S.facs[o.bloc].mood-12);
+  bumpPressure(S,"constitutional",8*n);
+  S.chronicle.push({year:S.year,text:`In ${S.year}, the Crown refused the chamber's ministry and sent the question back to the country.`});
+  const er=runElection();
+  const answered=(er.winner===o.bloc);
+  if(answered||n>=3){
+    /* answered at the polls, or simply worn out by use. Either way the right
+       is not abolished; it is just never reached for again. */
+    spendPrerog(S,"ministry");
+    const inst=S.gov.institutions[0];
+    if(inst)transferPower(S,inst,Math.min(8,S.gov.crown.power));
+    S.legitPen=(S.legitPen||0)+8;
+    S.stability=clamp(S.stability-6);
+    S.chronicle.push({year:S.year,cls:"mstone",text:answered
+      ?`In ${S.year}, the country returned the same interest with a larger majority, and the Crown gave way. No sovereign of ${S.nation} refused a ministry again.`
+      :`In ${S.year}, the Crown had refused one ministry too many; the right was not abolished so much as quietly retired.`});
+    S.notices.push(answered
+      ?`The country has answered the Crown. ${S.facs[o.bloc].name} are returned stronger, and the right to refuse a ministry is spent — it will not be offered to you again.`
+      :`The right to refuse a ministry is spent. Used three times in living memory, it has stopped meaning anything.`);
+    installPm(S,answered?o.bloc:er.winner,answered?o.holder:null,"chamber");
+  } else {
+    S.chronicle.push({year:S.year,text:`In ${S.year}, the country answered the Crown's dissolution as the palace had hoped, and the ${S.facs[er.winner].name} interest formed a ministry.`});
+    installPm(S,er.winner,null,"crown");
+  }
+  S.nextElection=S.turn+electionEvery(S);
+  checkMilestones(); rollEvent(false); render();
+}
+function doSeatShift(){
+  const want=S._seatShift; S._seatShift=null;
+  S._seat=want||"crown";
+  if(S._seat==="ministry"){
+    S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, the Crown's share of power fell below half, and the governing of ${S.nation} passed to the ministry; the throne remained, and was thereafter something to be managed.`});
+  } else {
+    S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, the Crown recovered a governing share of power, and the ministry became once more the palace's servant.`});
+  }
+  checkMilestones();
+  if(S.notices&&S.notices.length){ S.phase="tidings"; render(); return; }
+  proceedToElection(false); render();
 }
 function rollEvent(first){
   if(first){ S.phaseDone.event=true; S.phase="court"; return; }
@@ -380,6 +500,11 @@ function endTurn(){
   if(mt==="cruel"){ S.stability=clamp(S.stability-1); S.facs.peasantry.mood=clamp(S.facs.peasantry.mood-1); }
   S.legitPen=Math.max(0,(S.legitPen||0)-(mt==="beloved"?4:mt==="pious"?3:2));
   if(S.regency) S.treasury-=3;
+  /* a chamber that is never summoned is a grievance that compounds */
+  if(electionMode(S)==="summons"){
+    S._unsummoned=(S._unsummoned||0)+1;
+    if(S._unsummoned>=2)bumpPressure(S,"constitutional",Math.min(12,(S._unsummoned-1)*3));
+  }
   S.family=S.family.filter(p=>p.alive||p.parents||p.spouseId||["child","sibling","spouse","childspouse","grandchild"].includes(p.rel));
   if(S.treasury<-15)S.stability=clamp(S.stability-5);
   if(S.treasury<=-200){S.treasury=-120;S.privileges=Math.max(0,S.privileges-2);S.military=clamp(S.military-8);S.facs.merchants.mood=clamp(S.facs.merchants.mood-8);S.chronicle.push({year:S.year,cls:'rupture',text:'In '+S.year+', the Crown of '+S.nation+' defaulted upon its debts; creditors were ruined, privileges revoked, and regiments disbanded to stanch the bleeding.'});}

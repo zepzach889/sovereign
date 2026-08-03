@@ -79,6 +79,17 @@ function wire(){
   const tg=document.getElementById("tidingsGo");if(tg)tg.onclick=()=>afterTidings();
   const qg=document.getElementById("quietGo");if(qg)qg.onclick=()=>afterEvent();
   const eg=document.getElementById("electGo");if(eg)eg.onclick=()=>afterElection();
+  document.querySelectorAll("[data-pmpick]").forEach(b=>b.onclick=()=>doPmPick(+b.dataset.pmpick));
+  document.querySelectorAll("[data-pmoffer]").forEach(b=>b.onclick=()=>{b.dataset.pmoffer==="accept"?doPmAccept():doPmRefuse();});
+  const sg=document.getElementById("seatGo");if(sg)sg.onclick=()=>doSeatShift();
+  document.querySelectorAll("[data-elecevery]").forEach(b=>b.onclick=()=>{
+    const n=+b.dataset.elecevery; const was=electionEvery(S);
+    S.electionEvery=n;
+    /* shortening the cycle is a concession; lengthening it is not */
+    if(n<was){ S.legitPen=Math.max(0,(S.legitPen||0)-2); S.stability=clamp(S.stability-2); }
+    if(n>was){ S.legitPen=(S.legitPen||0)+2; bumpPressure(S,"constitutional",4); }
+    S.nextElection=Math.min(S.nextElection,S.turn+n);
+    render();});
   const pc=document.getElementById("pmConfirm");
   if(pc){pc.onclick=()=>doPMName((document.getElementById("pmInput").value||"").trim());
     document.querySelectorAll("[data-pmname]").forEach(b=>b.onclick=()=>{document.getElementById("pmInput").value=b.dataset.pmname;});}

@@ -2,7 +2,7 @@
 /* =====================================================================
    SETUP
    ===================================================================== */
-let SETUP={culture:"anglo",title:null,law:"malepref",nation:"",house:"",custom:{republic:"",junta:"",people:""}};
+let SETUP={culture:"anglo",title:null,law:"malepref",nation:"",house:"",devQuiet:false,custom:{republic:"",junta:"",people:""}};
 function renderSetup(){
   const C=CULTURES[SETUP.culture]||CULTURES.anglo;
   const titles=C.titles.filter(t=>TITLE_FORMS[t]);
@@ -32,6 +32,12 @@ function renderSetup(){
       <div class="law-list" id="lawList">${Object.keys(LAWS).map((l,i)=>`
         <button data-law="${l}" class="${SETUP.law===l?"on":""}"><div class="ln">${LAWS[l].name}</div><div class="ld">${LAWS[l].desc}</div></button>`).join("")}</div>
       <div class="hint">Chosen at the founding; it can later be rewritten — at a price — by reform.</div></div>
+    <div class="field"><label>The long reign</label>
+      <div class="law-list" id="quietList">
+        <button data-quiet="0" class="${SETUP.devQuiet?"":"on"}"><div class="ln">The realm as it is</div><div class="ld">Governments fall. Pressure builds until something breaks, and you continue in whatever replaces you.</div></button>
+        <button data-quiet="1" class="${SETUP.devQuiet?"on":""}"><div class="ln">The long reign — no ruptures</div><div class="ld">The weather still moves and you can still watch the realm lean, but nothing ever breaks. For walking one crown the whole way and judging it on its own terms.</div></button>
+      </div>
+      <div class="hint">Chosen at the founding and recorded in the chronicle. A long reign is not a shorter game; it is the same game with the storms taken out.</div></div>
     <button class="primary" id="beginBtn" disabled>Name your nation to take the throne</button>
     ${(function(){
       const a=(typeof autosaveInfo==="function")?autosaveInfo():null;
@@ -55,7 +61,8 @@ function renderSetup(){
   document.querySelectorAll("[data-house]").forEach(b=>b.onclick=()=>{house.value=b.dataset.house;SETUP.house=house.value;sync();});
   document.querySelectorAll("[data-title]").forEach(b=>b.onclick=()=>{SETUP.title=b.dataset.title;document.querySelectorAll("[data-title]").forEach(x=>x.classList.toggle("on",x===b));});
   document.querySelectorAll("[data-law]").forEach(b=>b.onclick=()=>{SETUP.law=b.dataset.law;document.querySelectorAll("[data-law]").forEach(x=>x.classList.toggle("on",x===b));});
-  begin.onclick=()=>{if(nat.value.trim()&&house.value.trim())newGame({nation:nat.value.trim(),title:SETUP.title,house:house.value.trim(),law:SETUP.law,culture:SETUP.culture,
+  document.querySelectorAll("[data-quiet]").forEach(b=>b.onclick=()=>{SETUP.devQuiet=b.dataset.quiet==="1";document.querySelectorAll("[data-quiet]").forEach(x=>x.classList.toggle("on",x===b));});
+  begin.onclick=()=>{if(nat.value.trim()&&house.value.trim())newGame({nation:nat.value.trim(),title:SETUP.title,house:house.value.trim(),law:SETUP.law,culture:SETUP.culture,devQuiet:!!SETUP.devQuiet,
     custom:{republic:(SETUP.custom.republic||"").trim(),junta:(SETUP.custom.junta||"").trim(),people:(SETUP.custom.people||"").trim()}});};
   [["ctRepublic","republic"],["ctJunta","junta"],["ctPeople","people"]].forEach(([id,k])=>{
     const f=document.getElementById(id); if(!f)return;

@@ -21,7 +21,12 @@ function pressureNow(S,id){
   const f=S.facs, legit=legitimacy(S);
   const bump=(S.pBump&&S.pBump[id])||0;
   const base=pressureBase(S,id);
-  return clamp(base+bump);
+  const v=clamp(base+bump);
+  /* The long-reign toggle. The weather still moves — you can watch a
+     realm lean — but it never breaks, so a single crown can be walked all
+     the way to the end of the tech tree and judged on its own terms. */
+  if(S.devQuiet)return Math.min(44,Math.round(v*0.4));
+  return v;
 }
 /* A state failing is the single largest driver of every pressure. A realm
    with no legitimacy, no order, no money and a crown that holds nothing is

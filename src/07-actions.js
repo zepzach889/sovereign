@@ -57,6 +57,21 @@ const ACTIONS=[
       return {cost:{gold:+6,stability:-3},fac:{aristocracy:-2},chron:S=>`the ${c.inst.name} refused the Crown's request, and only a thin, grudging sum was raised.`,
         out:"The chamber is in no mood to be generous. A fraction of the ask — and a lecture besides."};
     }},
+  { id:"summon",label:"Summon the chamber",cool:1,
+    hint:"call them, hear the grievances, and ask for the money — which is what they are for",
+    gain:"an extraordinary grant, and a constitutional question postponed",
+    cost:{},requires:S=>electionMode(S)==="summons",
+    resolve:S=>{ const c=consentCheck(S,"tax");
+      const waited=(S._unsummoned||0);
+      if(c.approve) return {cost:{gold:+30,stability:+3},fac:{aristocracy:+3,merchants:+3},
+        effect:S2=>{S2._unsummoned=0; if(S2.pBump)S2.pBump.constitutional=Math.max(0,(S2.pBump.constitutional||0)-10);},
+        chron:S2=>`the Crown summoned the ${c.inst?c.inst.name:"chamber"}, heard its grievances, and was granted its subsidy.`,
+        out:`They come, they complain at length, and they vote the money. ${waited>=3?"After that long a silence they complain rather more than usual, and the list is written down.":"This is the bargain the whole arrangement rests on: grievance first, supply second."}`};
+      return {cost:{gold:+8,stability:-4},fac:{aristocracy:-3},
+        effect:S2=>{S2._unsummoned=0;bumpPressure(S2,"constitutional",6);},
+        chron:S2=>`the Crown summoned the chamber and was refused its subsidy; the grievances were read out twice.`,
+        out:"They come, and they will not vote it. The grievances are read into the record instead — which is how a chamber discovers it has a weapon."};
+    }},
   { id:"tour",label:"Tour the provinces in state",cool:3,
     hint:"the sovereign's presence soothes the far country",
     cost:{gold:-16,stability:+3},fac:{provinces:+8,peasantry:+3},requires:S=>true,
@@ -79,7 +94,8 @@ const ACTIONS=[
     hint:"send them home and put the realm to the polls before its time",
     gain:"a fresh election — and a chamber reminded who summoned it",
     cost:{gold:-10,stability:-6},
-    requires:S=>S.gov.institutions.length>0&&S.gov.crown.power>=30
+    requires:S=>S.gov.institutions.length>0
+      &&(isMonarchy(S)?hasPrerog(S,"dissolve"):S.gov.crown.power>=30)
       &&(!!S.pm||(regimeIs(S,"republic")&&!!S.rep)||S.gov.institutions.some(i=>i.composition!=="nobility")),
     resolve:S=>{ const fx={}; (composition[S.gov.institutions[0].composition]||[]).forEach(k=>{fx[k]=-6;});
       S._dissolutions=(S._dissolutions||0)+1;
@@ -93,11 +109,16 @@ const ACTIONS=[
   { id:"refuse_ministry",label:"Refuse the chamber's ministry",cool:4,
     hint:"the winning benches propose; the Crown declines, and appoints its own",
     gain:"a ministry of your choosing — governing without a majority",
-    cost:{stability:-8},requires:S=>!!S.pm&&S.gov.crown.power>=38,
+    cost:{stability:-8},requires:S=>!!S.pm&&hasPrerog(S,"ministry"),
     resolve:S=>{ const blocs=Object.keys(S.facs).filter(k=>S.facs[k].present&&k!==S.pm.bloc);
       const nb=blocs.sort((a,b)=>S.facs[b].mood-S.facs[a].mood)[0]||S.pm.bloc;
       return {cost:{stability:-8},fac:{aristocracy:+4},
-        effect:S2=>{S2.pm.bloc=nb;S2.pm.holder=pmName();S2.pm.age=46+rand(14);S2.legitPen=(S2.legitPen||0)+9;S2._minority=true;},
+        effect:S2=>{S2.pm.bloc=nb;S2.pm.holder=pmName();S2.pm.age=46+rand(14);S2.legitPen=(S2.legitPen||0)+9;S2._minority=true;
+          S2._pmRefusals=(S2._pmRefusals||0)+1;
+          if(S2._pmRefusals>=3){ spendPrerog(S2,"ministry");
+            S2.chronicle.push({year:S2.year,cls:"mstone",text:`In ${S2.year}, the Crown had refused one ministry too many; the right was not abolished so much as quietly retired.`});
+            S2.notices.push("The right to refuse a ministry is spent. It will not be offered to you again."); }
+          bumpPressure(S2,"constitutional",10);},
         chron:S2=>`the Crown refused the chamber's choice of minister and appointed one of its own, to the fury of the benches.`,
         out:`The Crown will not have them. The ${S.facs[nb].name} take the seals instead, governing on sufferance and without a majority — which historically lasts about as long as the Crown's nerve does.`};}},
   { id:"abdicate",label:"Lay down the crown",cool:99,

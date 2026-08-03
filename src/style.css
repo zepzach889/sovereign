@@ -307,3 +307,10 @@
 /* the three styles a fallen crown might be replaced by */
 .customtitles{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .customtitles input{width:100%;font-size:13px;padding:8px 10px}
+
+/* the electoral cycle, set by the government that has to face it */
+.cadrow{display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle}
+.cadbtn{background:transparent;border:1px solid var(--line);color:var(--dim);
+  font:inherit;font-size:10.5px;padding:1px 6px;border-radius:3px;cursor:pointer}
+.cadbtn:hover{color:var(--ink)}
+.cadbtn.on{border-color:var(--brass);color:var(--brass)}

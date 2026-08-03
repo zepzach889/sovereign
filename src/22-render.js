@@ -109,12 +109,13 @@ function render(){
   const govHtml=`<div class="gov">
     <div class="gt"><span>The Government of ${esc(S.nation)}</span><span class="house">${esc(execHouse(S))}</span></div>
     <div class="hos">${esc(styled(S,S.monarch))} <small>· aged ${S.monarch.age}</small></div>
-    ${S.pm?`<div class="hos" style="margin-top:4px">${esc(S.pm.office)}: ${esc(S.pm.holder)}, ${S.pm.age} <small>· ${esc(S.facs[S.pm.bloc].name)} interest — you govern from this desk</small></div>
-    <div class="legit-src" style="margin:2px 0 0">Next election: turn ${S.nextElection} (~${S.year+(S.nextElection-S.turn)*4}). The estates ARE the electorate — their mood and influence decide it; a vote of no confidence falls if your bloc drops below 30.</div>`:""}
+    ${S.pm?`<div class="hos" style="margin-top:4px">${esc(S.pm.office)}: ${esc(S.pm.holder)}, ${S.pm.age} <small>· ${esc(S.facs[S.pm.bloc].name)} interest — ${pmGoverns(S)?"you govern from this desk":"the crown's servant; you govern from the throne"}</small></div>
+    <div class="legit-src" style="margin:2px 0 0">${electionCadenceLine(S)}</div>`:""}
     <div class="legit-src" style="margin:4px 0 0">${esc(execWord(S))} is ${crownBand(S).label} — ${crownBand(S).desc}.</div>
     ${(S.regency&&isMonarchy(S))?`<div class="regency">A regency governs in the sovereign's minority — ${esc(S.regency.name)} holds the seals.</div>`:""}
     <div class="powerrow"><span class="pn">${esc(execWord(S))}</span><span class="powerbar"><i style="width:${S.gov.crown.power}%"></i></span><span class="pp">${S.gov.crown.power}</span></div>
     ${instHtml}${S.gov.cabinet?`<div class="rights" style="margin-left:0;margin-top:6px">Cabinet: ${esc(S.gov.cabinet)} — action costs −10% · the realm develops and steadies more readily</div>`:""}${S.gov.charter?`<div class="rights" style="margin-left:0">Charter: ${esc(S.gov.charter)}</div>`:""}
+    ${prerogPanel(S)}
   </div>`;
   const facHtml=Object.keys(S.facs).map(k=>{const f=S.facs[k];
     const hue=f.mood>=60?"var(--good)":f.mood>=42?"var(--brass)":"var(--crisis)";
@@ -130,6 +131,9 @@ function render(){
   else if(S.phase==="tidings")main=renderTidings();
   else if(S.phase==="election")main=renderElection();
   else if(S.phase==="pmname")main=renderPmName();
+  else if(S.phase==="pmpick")main=renderPmPick();
+  else if(S.phase==="pmoffer")main=renderPmOffer();
+  else if(S.phase==="seatshift")main=renderSeatShift();
   else if(S.phase==="chname")main=renderChName();
   else if(S.phase==="court")main=renderCourt();
   else if(S.phase==="dynastic")main=renderDynastic()+(S.dyn?dynSkipBtn():"");
@@ -157,7 +161,7 @@ function render(){
   const el=h(`<div><div class="grid">
     <aside class="side">
       <div class="nationname">${esc(S.nation)}</div>
-      <div class="regime">${esc(regimeLabel(S))} · ${esc(eraDef(S).name)} age</div>
+      <div class="regime">${esc(regimeLabel(S))} · ${esc(eraDef(S).name)} age${S.devQuiet?' · <span style="color:var(--brass-dim)">long reign</span>':""}</div>
       <div class="yearrow"><span class="yearnum">${S.year}</span><span class="yearlbl">legacy ${legacyScore()}</span></div>
       <div class="meters">${meter("Stability",S.stability,"var(--blue)")}${meter("Arms",S.military,"var(--rust)")}${meter("Legitimacy",legit,"var(--sage)")}</div>
       <div class="budget">
@@ -594,10 +598,72 @@ function renderElection(){
     <div class="sit-text" style="color:var(--brass)">Under this government: ${esc(BLOC_DESCS[er.winner]||"no change to the toolbox")}.</div>
     <button class="cont" id="electGo">The ministry forms →</button>`;
 }
+/* =====================================================================
+   THE PREROGATIVE PANEL
+   The point of showing it is that the player should be able to watch a
+   right go dark, and know beforehand which one is next.
+   ===================================================================== */
+function prerogPanel(S){
+  if(!isMonarchy(S)||!S.gov.institutions.length)return "";
+  const rows=PREROGATIVES.map(p=>{
+    const st=prerogState(S,p.id);
+    if(st==="held")return `<div class="prow"><span class="pn">${esc(p.name)}</span><span class="pw">held</span></div>`;
+    if(st==="spent")return `<div class="prow crit"><span class="pn" style="text-decoration:line-through">${esc(p.name)}</span><span class="pw">spent</span></div>`;
+    return `<div class="prow" style="opacity:.5"><span class="pn">${esc(p.name)}</span><span class="pw">lapsed at ${p.floor}</span></div>`;
+  }).join("");
+  const next=PREROGATIVES.filter(p=>prerogState(S,p.id)==="held"&&p.floor>0)
+    .sort((a,b)=>b.floor-a.floor)[0];
+  return `<div class="press" style="margin-top:8px"><div class="gt">The Prerogative</div>${rows}
+    <div class="pnote">${next?`${esc(next.name.toLowerCase())} goes at ${next.floor}`:"only ceremony remains — and a ceremonial crown outlives most of the alternatives"}</div></div>`;
+}
+function electionCadenceLine(S){
+  const m=electionMode(S);
+  if(m==="summons")return `The chamber sits when it is summoned. It has not been called for ${(S._unsummoned||0)*5} years — and the longer that runs, the louder the constitutional question gets.`;
+  if(m!=="cycle")return "No ministry answers to the chamber yet.";
+  const yrs=Math.max(0,(S.nextElection-S.turn))*5;
+  const opts=[1,2,3].map(n=>`<button class="cadbtn${electionEvery(S)===n?" on":""}" data-elecevery="${n}">${n*5}y</button>`).join("");
+  return `Elections every ${electionYears(S)} years — next in about ${yrs} (~${S.year+yrs}). The estates ARE the electorate: their mood and influence decide it. <span class="cadrow">${opts}</span>`;
+}
+function renderPmPick(){
+  const f=S._pmField||[];
+  return `<div class="eyebrow">The crown's gift</div><div class="sit-title">Who Shall Have the Ministry</div>
+    <div class="sit-text">The country has returned a chamber. The crown is not obliged to take the slightest notice of that, and this one does not have to. Name a ${esc(S._pmOffice||"Prime Minister")}.</div>
+    <div class="choices">${f.map((c,i)=>`<button class="choice ${c.winner?"":"dyn-role"}" data-pmpick="${i}">
+      <div class="cl"><span class="mk">${["I","II","III"][i]||"•"}</span><span class="lbl">${esc(c.holder)} — ${esc(S.facs[c.bloc].name)} interest</span></div>
+      <div class="ch">${c.winner?"carried the chamber; the obvious man, which is its own kind of argument":"lost the chamber, and would govern only because you say so"}</div>
+      <div class="costs">${c.winner?`<span class="chip up">the chamber is satisfied</span>`:`<span class="chip down">−6 Stability</span><span class="chip down">legitimacy −4</span><span class="chip">the constitutional question sharpens</span>`}</div></button>`).join("")}</div>`;
+}
+function renderPmOffer(){
+  const o=S._pmOffer||{};
+  const n=(S._pmRefusals||0)+1;
+  const nm=S.facs[o.bloc]?S.facs[o.bloc].name:"governing";
+  return `<div class="eyebrow">The chamber presents its man</div><div class="sit-title">A Ministry Offered</div>
+    <div class="sit-text">The ${esc(nm)} interest carried the chamber and has sent ${esc(o.holder||"a name")} to the palace to be made ${esc(S.pm?S.pm.office:"Prime Minister")}. The crown may still decline — it has the right, it has had the right for centuries, and every sovereign who has used it has found out what it costs.</div>
+    <div class="choices">
+      <button class="choice" data-pmoffer="accept"><div class="cl"><span class="mk">I</span><span class="lbl">Accept the chamber's ministry</span></div>
+        <div class="ch">the constitutional thing, and the cheap thing</div>
+        <div class="costs"><span class="chip up">+2 Stability</span></div></button>
+      <button class="choice dyn-role" data-pmoffer="refuse"><div class="cl"><span class="mk">II</span><span class="lbl">Refuse, and send it back to the country</span></div>
+        <div class="ch">a dissolution, a campaign, and an answer you may not like${n>1?` — and this is refusal number ${n}`:""}</div>
+        <div class="costs"><span class="chip down">−${4*n} Stability</span><span class="chip down">legitimacy −${3*n}</span><span class="chip">if they are returned, the right is spent for good</span></div></button>
+    </div>`;
+}
+function renderSeatShift(){
+  const toMin=S._seatShift==="ministry";
+  return `<div class="eyebrow">${toMin?"A transformation — power has tipped":"A transformation — the palace recovers"}</div>
+    <div class="sit-title">${toMin?"The Crown No Longer Governs":"The Crown Governs Again"}</div>
+    <div class="sit-text">${toMin
+      ?`The crown's share has fallen below half. Governing passes to the ministry — and you, the will behind the throne, cross the room to the minister's desk. The monarchy remains: watched, managed, occasionally in the way, and still holding whatever prerogatives it has not yet spent. Those now point at you.`
+      :`The crown has clawed back a governing share, and the ministry is once more the palace's servant. You return to the throne. The chamber has a long memory for this sort of thing.`}</div>
+    <button class="cont" id="seatGo">${toMin?"Take the desk →":"Return to the throne →"}</button>`;
+}
 function renderPmName(){
   const sug=["Prime Minister","First Minister","Chancellor","Lord Steward"];
-  return `<div class="eyebrow">A transformation — power has tipped</div><div class="sit-title">The Crown No Longer Governs</div>
-    <div class="sit-text">The Crown's share of power has fallen below half. Governing passes to a ministry answerable to the chamber — and you, the will behind the throne, now sit at the minister's desk instead. The monarchy remains: watched, managed, and occasionally in the way. Name the office you now hold.</div>
+  const low=(S.gov.crown.power|0)<50;
+  return `<div class="eyebrow">${low?"A transformation — power has tipped":"The chamber requires managing"}</div><div class="sit-title">${low?"The Crown No Longer Governs":"A Ministry Is Formed"}</div>
+    <div class="sit-text">${low
+      ?`The Crown's share of power has fallen below half. Governing passes to a ministry answerable to the chamber — and you, the will behind the throne, will sit at the minister's desk instead. Name the office.`
+      :`An assembly needs a man who can manage it, and the crown needs a man to blame. So an office is invented: the crown's servant, sitting in the chamber, speaking for the palace to the benches and for the benches to the palace. It will not stay a servant forever. Name it.`}</div>
     <div class="namein"><input type="text" id="pmInput" value="Prime Minister" maxlength="30" />
       <div class="suggest">${sug.map(x=>`<button data-pmname="${x}">${x}</button>`).join("")}</div></div>
     <button class="cont" id="pmConfirm">Take office →</button>`;
@@ -615,9 +681,10 @@ function pmGender(){ return eraIdx(S)<=2?"m":(chance(0.5)?"m":"f"); }
 function pmName(){ return nameFor(pmGender(),usedNames(S))+" "+pick(surnamePool()); }
 function doPMName(v){
   const er=runElection();
-  S.pm={office:v||"Prime Minister",bloc:er.winner,holder:pmName(),age:45+rand(14)};
-  S.nextElection=S.turn+4;
-  S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, the Crown's share of power fell below half, and governing passed to a ministry: ${S.pm.holder}, of the ${S.facs[er.winner].name} interest, took office as the first ${S.pm.office} of ${S.nation}.`});
+  S._pmOffice=v||"Prime Minister";
+  installPm(S,er.winner,null,"chamber");
+  S.nextElection=S.turn+electionEvery(S);
+  S._seat=seatNow(S); S._seatShift=null;
   checkMilestones();
   const nx=S._afterName;S._afterName=null;routeNext(nx);
 }

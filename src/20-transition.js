@@ -10,6 +10,8 @@ const REGIME_OF_PRESSURE={military:"junta",radical:"people",constitutional:"repu
 function regimeName(r){ return r==="junta"?"a military government":r==="people"?"a people's republic":r==="republic"?"a republic":"a crown"; }
 /* a realm cannot become what it already is */
 function transitionReady(S){
+  /* the long-reign toggle: no government falls while it is on */
+  if(S.devQuiet)return null;
   /* the honeymoon: three turns in which the new order is simply the order */
   if(S._settledUntil&&(S.turn||0)<S._settledUntil)return null;
   const cur=S.regime||"monarchy";

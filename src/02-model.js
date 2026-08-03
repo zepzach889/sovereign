@@ -39,12 +39,79 @@ function powerToCrown(S,inst,amount){ const a=Math.min(amount,inst.power); inst.
 function crownBand(S){
   const p=S.gov.crown.power;
   const w=crownWord(S), W=w.charAt(0).toUpperCase()+w.slice(1);
-  const veto=(S&&S.regime==="monarchy")?"a royal veto":"a veto";
-  if(p>=60)return{label:"dominant",desc:`${w} sets policy at will`};
-  if(p>=40)return{label:"strong",desc:`assent is still required, and ${veto} is within reach`};
-  if(p>=21)return{label:"constrained",desc:"ceremony, influence, and little else"};
-  return{label:"a figurehead",desc:`${W} presides; it does not rule`};
+  if(!isMonarchy(S)){
+    if(p>=60)return{label:"dominant",desc:`${w} sets policy at will`};
+    if(p>=40)return{label:"strong",desc:"assent is still required, and a veto is within reach"};
+    if(p>=21)return{label:"constrained",desc:"ceremony, influence, and little else"};
+    return{label:"a figurehead",desc:`${W} presides; it does not rule`};
+  }
+  /* The three constitutional bands. They are not difficulty settings —
+     they are the nineteenth century, in order. */
+  if(p>=70)return{label:"personal rule",desc:"the ministry is the crown's servant, and knows it"};
+  if(p>=50)return{label:"a mixed constitution",desc:"the chamber names a ministry; the crown may still say no"};
+  if(p>=21)return{label:"reigning, not ruling",desc:"prerogative without government"};
+  return{label:"ceremonial",desc:`${W} presides; it does not rule — and is the steadier for it`};
 }
+
+/* =====================================================================
+   THE PREROGATIVE LADDER
+   A crown does not lose its rights all at once. It loses them one at a
+   time, at thresholds — and, which matters more, it loses them for good
+   by using them and losing. William IV dismissed Melbourne in 1834,
+   called the country, and was answered. No British monarch dismissed a
+   ministry again. The right was never abolished anywhere. It was spent.
+   ===================================================================== */
+const PREROGATIVES=[
+  {id:"dissolve", floor:50, name:"Dissolve the chamber",   gloss:"send them home and call the country"},
+  {id:"ministry", floor:50, name:"Refuse a ministry",      gloss:"the chamber proposes; the crown may decline"},
+  {id:"council",  floor:50, name:"Appoint the council",    gloss:"the offices of state are the crown's own gift"},
+  {id:"assent",   floor:40, name:"Withhold assent",        gloss:"a bill passed is not yet a law"},
+  {id:"emergency",floor:30, name:"Command of the army",    gloss:"the garrison answers the palace, not the ministry"},
+  {id:"peers",    floor:25, name:"Create peers",           gloss:"the upper house can always be made larger"},
+  {id:"pardon",   floor:15, name:"Pardon",                 gloss:"one life, at the crown's word"},
+  {id:"ceremony", floor:0,  name:"Honours and the opening", gloss:"never lost, and not nothing"}
+];
+function prerogSpent(S,id){ return !!(S._prerogSpent&&S._prerogSpent[id]); }
+function spendPrerog(S,id){ S._prerogSpent=S._prerogSpent||{}; S._prerogSpent[id]=true; }
+function hasPrerog(S,id){
+  if(!isMonarchy(S))return false;
+  if(prerogSpent(S,id))return false;
+  const p=PREROGATIVES.find(x=>x.id===id); if(!p)return false;
+  return (S.gov.crown.power|0)>=p.floor;
+}
+function prerogState(S,id){
+  const p=PREROGATIVES.find(x=>x.id===id); if(!p)return "gone";
+  if(prerogSpent(S,id))return "spent";
+  return (S.gov.crown.power|0)>=p.floor?"held":"lapsed";
+}
+
+/* =====================================================================
+   WHERE THE PLAYER SITS
+   From 70 down to 50 they hold the palace AND the ministry, which is not
+   a compromise but a description: a mixed constitution is two
+   governments in one country, arguing. Below 50 the desk moves, the
+   crown becomes an NPC, and its leftover prerogatives point at you.
+   ===================================================================== */
+function pmGoverns(S){ return isMonarchy(S)&&!!S.pm&&(S.gov.crown.power|0)<50; }
+function crownAppointsPm(S){ return isMonarchy(S)&&(S.gov.crown.power|0)>=70; }
+function pmContested(S){ const p=S.gov.crown.power|0; return isMonarchy(S)&&p>=50&&p<70; }
+function seatNow(S){ return pmGoverns(S)?"ministry":"crown"; }
+
+/* =====================================================================
+   SUMMONS OR CYCLE
+   With one chamber and a crown in personal rule there is no electoral
+   cycle. The chamber sits when it is summoned, and it is summoned when
+   the crown needs money. That is not a simplification of the period; it
+   is the reason parliaments met at all.
+   ===================================================================== */
+function electionMode(S){
+  if(!isMonarchy(S))return "cycle";
+  if(!S.pm)return "none";
+  if(S.gov.institutions.length<2&&(S.gov.crown.power|0)>=70)return "summons";
+  return "cycle";
+}
+function electionEvery(S){ const n=(S&&S.electionEvery!=null)?S.electionEvery:2; return Math.max(1,Math.min(3,n|0)); }
+function electionYears(S){ return electionEvery(S)*5; }
 const BLOC_MODS={
   aristocracy:{privileges:0.5,trade:1.3},
   clergy:{patronize:0.5},
@@ -82,7 +149,15 @@ function adjCost(S,a){
 }
 function maybeTransform(S){
   if(!isMonarchy(S))return false;   /* only a crown can be reduced to a ministry */
-  if(!S.pm&&!S._pmPending&&S.gov.institutions.length&&S.gov.crown.power<50) S._pmPending=true;
+  /* A chamber needs someone who can manage it. The ministry is born with
+     the first assembly, not with the crown's defeat — it simply starts as
+     a servant and ends as the government. */
+  if(!S.pm&&!S._pmPending&&S.gov.institutions.length) S._pmPending=true;
+  if(S.pm){
+    S._seat=S._seat||"crown";
+    const want=seatNow(S);
+    if(want!==S._seat) S._seatShift=want;   /* narrated once, then applied */
+  }
 }
 function runElection(){
   const set=new Set(); S.gov.institutions.forEach(i=>(composition[i.composition]||[]).forEach(k=>set.add(k)));
