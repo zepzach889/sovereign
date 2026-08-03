@@ -1,50 +1,58 @@
 # Sovereign — changelog
 
-## v12.8 — the blocker
+## v12.9 — the panels behave
 
-### The deadlock, and what actually caused it
+### The pinned block
 
-v12.7's coming-of-age beat wrote `h.trait = "able"` — a key that is not in
-`TRAITS`. `traitShown()` then did `TRAITS[p.trait].name` with no guard, so from
-that moment **every render in the game threw**, and no button did anything. The
-chronicle would not open because nothing would open.
+Pinning the state of the realm was right. Pinning *all* of it, with a
+transparent backdrop, over a house of seventeen, was not.
 
-Three fixes, because one was not enough:
+- **Opaque now** — it sits on the console's own colour, so nothing scrolls
+  visibly through it.
+- **Capped at two fifths of the viewport** (a third on shorter screens) and
+  scrolls inside itself, so the play options can never be pushed off the bottom.
+- **The royal family keeps its own leash** — past nine rows the list scrolls
+  within the panel rather than growing without limit.
+- **A fold button**, if you would rather have the whole thing out of the way.
 
-- The outcome writes a real trait key.
-- `traitShown()` now returns nothing for an unknown key instead of taking down
-  the entire UI. A bad key should degrade, not detonate.
-- The skill and loyalty rolls added in v12.6 were also reading trait names that
-  do not exist (`able`, `idle`, `loyal`, `ambitious`), so those modifiers had
-  silently never fired. They now use the real traits — and a martial candidate
-  is better at the army, a pious one at the pulpit, a cruel one less trusted.
+### A branch is a family, not a name
 
-New tests drive all six coming-of-age outcomes, assert that nothing anywhere
-writes an unknown trait key, and assert the UI survives one if it ever does.
+Two things were wrong with the cadet lines.
 
-### One coming-of-age beat, not two
+- **Children stayed at court after their parents left it**, so the royal family
+  filled with nieces and nephews whose parents were nowhere to be seen. A child
+  now goes into their parents' branch, and a spouse follows the person they
+  married.
+- **Expanding a branch showed only the person it was named after.** It now lists
+  every member: their standing to the crown, their age, whom they married, and
+  their children by name.
 
-There was already an `ofage` beat in the dynastic phase. In v12.7 I built a
-second one beside it and wired mine into `toDynCourt()` — which is called from
-inside render passes, so entering the phase called `render()` from within
-`render()`. That is why you saw the old screen and then the new one.
+### The heir, and what you can sensibly do with them
 
-The old two-option screen is gone. The existing beat now renders the new one, so
-there is a single entry point and no re-entrant render. `doHeirAge` also refuses
-to act unless the game is actually in that beat, so a stale button cannot apply
-it twice.
+A brother was being offered marriage into his own line, which is not a policy.
+Coming-of-age now distinguishes three quite different problems:
 
-### Pinned panels
+- **A child** — a successor. Schooling, a command, a progress, or neglect.
+- **A brother or sister** — a successor *and* a succession crisis in waiting,
+  because the line runs through them and they have no children. If unmarried,
+  they can now be **married without delay to secure the line**, which is the
+  thing every court in the position actually did.
+- **A nephew or cousin** — a claim the country has no feeling about. Adoption
+  into the household, or marriage to one of the sovereign's own children, which
+  is now only offered when there is somebody to marry, and names them.
 
-The government box and the royal family stay put while the decision below them
-scrolls — they are the state of the realm, and you should not have to scroll
-away from them to read a choice. On short screens they release back to normal
-flow rather than eating the viewport.
+The heir's kind is derived from the parent graph rather than the `rel` label,
+because those labels are recomputed on every render and are not a thing to make
+decisions on.
 
-### Cadet lines, on request
+### More suits pressed
 
-The summary line now has a **show** toggle: branch by branch, with names, ages
-and who is married. Closed by default, which you were right about.
+Three to five matches now, not one to three, drawn from six kinds rather than
+three: the foreign crown, the great house, the love match, a house the hierarchs
+have blessed, new money with a pedigree under construction, and a family that
+has given the realm three generations of officers. The field is shuffled, so the
+same three do not always survive the trim. Every new chip is wired to a real
+effect.
 
 ---
 

@@ -542,6 +542,9 @@ console.log("\n— targeted screens —");
   S = freshGame(); st = B.S;
   const neph = sandbox.makePerson(st, "nephew", "m", 18);
   st.family.push(neph);
+  /* bind now requires somebody of the direct line to bind to */
+  const dline = sandbox.makePerson(st, "child", "f", 18, null, [st.monarch.id, 7777]);
+  st.family.push(dline);
   st.dyn = { kind: "ofage", heir: neph }; st.phase = "dynastic";
   sandbox.render();
   opts = document.querySelectorAll("[data-heirage]");
@@ -561,6 +564,72 @@ console.log("\n— targeted screens —");
   try { sandbox.doHeirAge("progress"); } catch (e) { fail(`heirage: stale click threw: ${e.message}`); }
   ok(B.S.stability === t0 && B.S.phase === "dyncourt",
      "heirage: a stale click from another phase still applied the beat");
+
+  /* a brother heir must not be offered nonsense */
+  {
+    S = freshGame();
+    const st3 = B.S;
+    st3.monarch.parents = st3.monarch.parents || [8801, 8802];
+    const bro = sandbox.makePerson(st3, "sibling", "m", 20, null, st3.monarch.parents.slice());
+    st3.family.push(bro);
+    st3.dyn = { kind: "ofage", heir: bro }; st3.phase = "dynastic";
+    sandbox.render();
+    const o = document.querySelectorAll("[data-heirage]");
+    ok(!o.some(b => b.attrs["data-heirage"] === "bind"),
+       "heirage: a brother was offered marriage into his own line");
+    ok(!o.some(b => b.attrs["data-heirage"] === "adopt_in"),
+       "heirage: a brother was offered adoption into the household he is already in");
+    ok(o.some(b => b.attrs["data-heirage"] === "wed_line"),
+       "heirage: an unmarried brother heir was not offered a match to secure the line");
+    ok(sandbox.heirKind(st3, bro) === "sibling", "heirage: a sibling heir was misclassified");
+  }
+  /* a collateral heir only gets 'bind' when there is somebody to bind to */
+  {
+    S = freshGame();
+    const st4 = B.S;
+    const neph2 = sandbox.makePerson(st4, "nephew", "m", 18);
+    st4.family.push(neph2);
+    st4.dyn = { kind: "ofage", heir: neph2 }; st4.phase = "dynastic";
+    sandbox.render();
+    ok(document.querySelectorAll("[data-heirage]").filter(b => b.attrs["data-heirage"] === "bind").length === 0,
+       "heirage: bind offered with nobody in the direct line to marry");
+    /* now give the sovereign a marriageable daughter */
+    const dau = sandbox.makePerson(st4, "child", "f", 18, null, [st4.monarch.id, 4242]);
+    st4.family.push(dau);
+    sandbox.render();
+    const withMatch = document.querySelectorAll("[data-heirage]").filter(b => b.attrs["data-heirage"] === "bind");
+    ok(withMatch.length === 1, "heirage: bind not offered even with a match available");
+    if (withMatch.length) {
+      withMatch[0].onclick();
+      ok(neph2.spouseId === dau.id || dau.spouseId === neph2.id,
+         "heirage: binding did not actually marry them");
+    }
+  }
+  /* three to five suits, and not always the same three kinds */
+  {
+    const counts = new Set(), kinds = new Set();
+    for (let i = 0; i < 50; i++) {
+      S = freshGame(); const stm = B.S;
+      stm._matchC = null;
+      const list = sandbox.matchCandidates(stm, stm.monarch);
+      counts.add(list.length);
+      list.forEach(c => kinds.add(c.kind));
+      ok(list.length >= 3 && list.length <= 5, `marriage: ${list.length} offers, want 3-5`);
+    }
+    ok(counts.size > 1, "marriage: the number of offers never varied");
+    ok(kinds.size >= 5, `marriage: only ${kinds.size} kinds of match ever appeared`);
+  }
+  /* children follow their parents into a branch */
+  {
+    S = freshGame();
+    const stc = B.S;
+    const unc = sandbox.makePerson(stc, "uncle", "m", 44);
+    unc.cadet = true; unc.branch = "Test's line"; stc.family.push(unc);
+    const kid2 = sandbox.makePerson(stc, "nephew", "m", 4, null, [unc.id, 555]);
+    stc.family.push(kid2);
+    ok(sandbox.shouldCadet(stc, kid2),
+       "cadet: a child was left at court after their parent joined a branch");
+  }
 
   /* every trait written anywhere must be a real trait key — an unknown one
      took down every render in the game and blocked a whole playthrough */
@@ -885,8 +954,8 @@ if (false) {
     counts.add(list.length);
     list.forEach(c => { if (c.dowry) kinds.add("dowry"); if (c.heal) kinds.add("heal");
                         if (c.placate) kinds.add("placate"); if (c.arms) kinds.add("arms"); });
-    ok(list.length >= 1, "marriage: a sovereign was offered no match at all");
-    ok(list.length <= 3, `marriage: ${list.length} offers, want at most 3`);
+    ok(list.length >= 3, `marriage: only ${list.length} offers, want at least 3`);
+    ok(list.length <= 5, `marriage: ${list.length} offers, want at most 5`);
   }
   ok(counts.size > 1, "marriage: the number of offers never varied");
   ok(kinds.size > 1, `marriage: terms never varied with the realm (saw: ${[...kinds].join(", ") || "none"})`);
