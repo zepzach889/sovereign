@@ -81,6 +81,28 @@ function provincePanel(){
     ${lost?`<div class="prov gone"><span class="pvn">Lost: ${(S.lostProvinces||[]).map(x=>esc(x.name)+" ("+x.year+")").join(", ")}</span></div>`:""}
   </div>`;
 }
+/* the six facts you look up while deciding anything */
+function stateBar(){
+  const bits=[];
+  if(isMonarchy(S)){
+    const h=heirOf(S);
+    bits.push(`<span class="sbi"><b>${esc(styled(S,S.monarch))}</b>, ${S.monarch.age}</span>`);
+    bits.push(`<span class="sbi sbd">${esc(S.house)}</span>`);
+    bits.push(`<span class="sbi">heir: ${h?`${esc(h.name)}, ${h.age}`:`<span class="sbwarn">none</span>`}</span>`);
+    if(S.regency)bits.push(`<span class="sbi sbwarn">regency — ${esc(S.regency.name)}</span>`);
+  } else {
+    bits.push(`<span class="sbi"><b>${esc(S.monarch?S.monarch.name:regimeLabel(S))}</b></span>`);
+    bits.push(`<span class="sbi sbd">${esc(regimeLabel(S))}</span>`);
+  }
+  const cp=S.gov.crown.power|0;
+  bits.push(`<span class="sbi">${esc(crownWord(S))} <b>${cp}</b><span class="sbd">/100</span></span>`);
+  if(S.pm)bits.push(`<span class="sbi sbd">${esc(S.pm.office)}: ${esc(S.pm.holder)}</span>`);
+  const net=netIncome(S);
+  bits.push(`<span class="sbi">treasury <b class="${S.treasury<0?"sbwarn":""}">${S.treasury}</b> <span class="sbd">(${net>=0?"+":""}${net}/turn)</span></span>`);
+  bits.push(`<span class="sbi">legit <b>${Math.round(legitimacy(S))}</b></span>`);
+  bits.push(`<span class="sbi">stab <b class="${S.stability<30?"sbwarn":""}">${Math.round(S.stability)}</b></span>`);
+  return `<div class="statebar">${bits.join("")}</div>`;
+}
 function familyPanel(){
   if(!isMonarchy(S))return "";
   const rows=[];
@@ -106,16 +128,23 @@ function familyPanel(){
       names.forEach(b=>{
         const mem=branches[b].slice().sort((x,y)=>y.age-x.age);
         rows.push(`<div class="person cadhead"><span class="pr">${esc(b)}</span><span style="color:var(--dim)">${mem.length} living</span></div>`);
+        const shown={};
         mem.forEach(c=>{
+          if(shown[c.id])return;
           const sp=c.spouseId?(S.family||[]).find(x=>x.id===c.spouseId):null;
-          const kids=(S.family||[]).filter(x=>x.alive&&x.parents&&x.parents.indexOf(c.id)>=0);
+          /* a married couple is one row, and their children are listed once */
+          if(sp&&sp.cadet&&sp.branch===c.branch)shown[sp.id]=true;
+          shown[c.id]=true;
+          const kids=(S.family||[]).filter(x=>x.alive&&x.parents
+            &&(x.parents.indexOf(c.id)>=0||(sp&&x.parents.indexOf(sp.id)>=0)));
+          kids.forEach(k=>{ if(k.cadet&&k.branch===c.branch)shown[k.id]=true; });
           const tr=traitShown(c);
           rows.push(`<div class="person cadet"><span class="pr">${esc(relLabel(c)||"kin")}</span><span>${esc(c.name)}, ${c.age}</span>${tr?`<span class="trait ${tr.sure?"sure":""}">${tr.sure?"":"\u201c"}${esc(tr.text)}${tr.sure?"":"\u201d"}</span>`:""}${sp?`<span class="wed">\u229a ${esc(sp.name)}${sp.alive===false?" \u2020":""}</span>`:""}${kids.length?`<span class="office">${kids.length===1?"child":"children"}: ${kids.map(k=>esc(k.name)+", "+k.age).join(" \u00b7 ")}</span>`:""}</div>`);
         });
       });
     }
   }
-  const capped=rows.length>9?" capped":"";
+  const capped=rows.length>22?" capped":"";
   return `<div class="family"><div class="gt"><span>The Royal Family</span><span class="lawpill">${LAWS[S.law].name} succession${spouseOf(S)?" \u00b7 wed":""}</span></div><div class="famscroll${capped}">${rows.join("")}</div></div>`;
 }
 
@@ -207,12 +236,12 @@ function render(){
       ${provincePanel()}
     </aside>
     <section class="console">
-      <div class="pinned${(S.ui&&S.ui.pinFold)?" folded":""}">
+      <div class="pinned">
         ${phaseStrip()}
-        <div class="pinfold"><button id="pinFold">${(S.ui&&S.ui.pinFold)?"unpin the panels ▴":"pin the panels ▾"}</button></div>
-        ${govHtml}
-        ${familyPanel()}
+        ${stateBar()}
       </div>
+      ${govHtml}
+      ${familyPanel()}
       <div class="mainpanel">${main}</div>
     </section>
   </div>

@@ -822,9 +822,22 @@ function endTurn(){
   if(S.rival)S.stability=clamp(S.stability-2);
   /* kin drift out of the household and into their own branches */
   (S.family||[]).forEach(p=>{
+    /* repair branches recorded before spouses were joined to the blood */
+    if(p.cadet&&p.spouseId){
+      const sp=(S.family||[]).find(q=>q.id===p.spouseId&&q.cadet);
+      if(sp&&sp.branch&&p.branch&&sp.branch!==p.branch){
+        const keep=branchNameFor(S,p);
+        p.branch=keep; sp.branch=keep;
+      }
+    }
     if(shouldCadet(S,p)){
       p.cadet=true;
-      if(!p.branch)p.branch=`${p.name}'s line`;
+      if(!p.branch){
+        /* a spouse joins the blood's branch rather than founding a rival one */
+        const anchor=branchAnchor(S,p);
+        if(anchor.id!==p.id&&anchor.branch) p.branch=anchor.branch;
+        else { p.branch=branchNameFor(S,p); if(anchor.id!==p.id)anchor.branch=p.branch; }
+      }
     }
   });
   officeUpkeep(S);
@@ -880,7 +893,7 @@ function maybeBirth(span){
     if(!chance(span*0.10))return;
     const sg=p.gender==="m"?"f":"m";
     const sp=makePerson(S,"inlaw",sg,Math.max(17,p.age-4+rand(9)));
-    sp.spouseId=p.id; p.spouseId=sp.id; sp.cadet=true; S.family.push(sp);
+    sp.spouseId=p.id; p.spouseId=sp.id; sp.cadet=true; sp.marriedIn=true; sp.branch=p.branch; S.family.push(sp);
     S.chronicle.push({year:S.year,text:`In ${S.year}, ${p.name} of the ${esc0(p.branch||"cadet line")} married ${sp.name}, and the court noted it in passing.`});
   });
   S.family.filter(c=>(c.rel==="sibling"||c.rel==="uncle")&&c.alive&&c.spouseId).forEach(c=>{

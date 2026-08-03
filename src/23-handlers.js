@@ -83,8 +83,6 @@ function wire(){
   document.querySelectorAll("[data-pmoffer]").forEach(b=>b.onclick=()=>{b.dataset.pmoffer==="accept"?doPmAccept():doPmRefuse();});
   const sg=document.getElementById("seatGo");if(sg)sg.onclick=()=>doSeatShift();
   document.querySelectorAll("[data-heirage]").forEach(b=>b.onclick=()=>doHeirAge(b.dataset.heirage));
-  const pf=document.getElementById("pinFold");
-  if(pf)pf.onclick=()=>{S.ui=S.ui||{};S.ui.pinFold=!S.ui.pinFold;render();};
   const ct=document.getElementById("cadTog");
   if(ct)ct.onclick=()=>{S.ui=S.ui||{};S.ui.cadetsOpen=!S.ui.cadetsOpen;render();};
   document.querySelectorAll("[data-elecevery]").forEach(b=>b.onclick=()=>{

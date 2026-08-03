@@ -120,6 +120,26 @@ function shouldCadet(S,p){
   if(p.rel==="sibling")return p.age>=30&&!!p.spouseId;  /* married and settled */
   return p.age>=25;
 }
+/* of the blood, as against married into it */
+function isBlood(S,p){
+  if(!p)return false;
+  if(p.marriedIn)return false;
+  if(["spouse","childspouse","inlaw"].includes(p.rel))return false;
+  return !!bloodRel(S,S.monarch.id,p.id)||!!(p.parents&&p.parents.length);
+}
+/* the person a branch is named for: the one descended from the house */
+function branchAnchor(S,p){
+  if(isBlood(S,p))return p;
+  if(p.spouseId){
+    const sp=(S.family||[]).find(q=>q.id===p.spouseId);
+    if(sp&&isBlood(S,sp))return sp;
+  }
+  return p;
+}
+function branchNameFor(S,p){
+  const a=branchAnchor(S,p);
+  return `${a.name}'s line`;
+}
 function branchKin(S){
   /* the ones who have left the household but not the chronicle */
   return (S.family||[]).filter(p=>p.cadet&&p.alive);
