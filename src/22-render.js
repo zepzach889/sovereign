@@ -86,7 +86,7 @@ function familyPanel(){
   const rows=[];
   const monRow=monarchLine(); if(monRow)rows.push(monRow); const h=heirOf(S);
   const order={spouse:0,child:1,childspouse:2,grandchild:3,sibling:4,dowager:5,uncle:6,kin:7};
-  const fam=S.family.filter(p=>!p.outHouse&&(p.alive||p.rel==="spouse"||p.rel==="child"||(p.diedTurn!=null&&S.turn-p.diedTurn<=2))).slice().sort((a,b)=>((order[a.rel]!=null?order[a.rel]:9)-(order[b.rel]!=null?order[b.rel]:9))||b.age-a.age);
+  const fam=S.family.filter(p=>!p.outHouse&&!p.cadet&&(p.alive||p.rel==="spouse"||p.rel==="child"||(p.diedTurn!=null&&S.turn-p.diedTurn<=2))).slice().sort((a,b)=>((order[a.rel]!=null?order[a.rel]:9)-(order[b.rel]!=null?order[b.rel]:9))||b.age-a.age);
   fam.forEach(p=>{ const tr=traitShown(p);
     rows.push(`<div class="person ${p.alive?"":"dead"}"><span class="pr">${relLabel(p)}</span>
     <span>${esc(p.name)}, ${p.age}</span>${tr?`<span class="trait ${tr.sure?"sure":""}">${tr.sure?"":"“"}${esc(tr.text)}${tr.sure?"":"”"}</span>`:""}${p.job?`<span class="office">${esc(((typeof ROLES!=="undefined"?ROLES:[]).find(r=>r.id===p.job)||{}).name||"")}</span>`:""}${p.love?`<span class="office" style="color:#c76b8a">love match</span>`:""}${(function(){
@@ -94,6 +94,8 @@ function familyPanel(){
       const sp=(S.family||[]).find(x=>x.id===p.spouseId)||((S.monarch&&S.monarch.id===p.spouseId)?S.monarch:null);
       return sp?`<span class="wed">⚭ ${esc(sp.name)}${sp.alive===false?" †":""}</span>`:"";})()}${p.abdicated?`<span class="office">laid down the crown</span>`:""}${h&&h.id===p.id?`<span class="heirmark">— heir</span>`:""}${S.rival&&S.rival.id===p.id?`<span class="rival">— rival claimant</span>`:""}${p.exiled?`<span class="rival" style="color:var(--dim)">— exiled</span>`:""}</div>`); });
   if(!rows.length) rows.push(`<div class="person"><span class="pr">—</span><span style="color:var(--dim);font-style:italic">no living kin of note</span></div>`);
+  const cadets=branchKin(S);
+  if(cadets.length)rows.push(`<div class="person"><span class="pr">cadet lines</span><span style="color:var(--dim)">${cadets.length} of the blood in ${new Set(cadets.map(c=>c.branch||"a branch")).size} branches — kin, claimants if the line fails, and no charge upon the treasury</span></div>`);
   return `<div class="family"><div class="gt"><span>The Royal Family</span><span class="lawpill">${LAWS[S.law].name} succession${spouseOf(S)?" · wed":""}</span></div>${rows.join("")}</div>`;
 }
 
@@ -135,6 +137,7 @@ function render(){
   else if(S.phase==="pmpick")main=renderPmPick();
   else if(S.phase==="pmoffer")main=renderPmOffer();
   else if(S.phase==="seatshift")main=renderSeatShift();
+  else if(S.phase==="heirage")main=renderHeirAge();
   else if(S.phase==="chname")main=renderChName();
   else if(S.phase==="court")main=renderCourt();
   else if(S.phase==="dynastic")main=renderDynastic()+(S.dyn?dynSkipBtn():"");
@@ -210,13 +213,14 @@ function renderAdvance(){
   const nextEra=ERAS[ei+1];
   const advHtml=advs.map(a=>{
     const c=advCost(S,a), aff=S.knowledge>=c, ahead=a.era>ei;
-    return `<button class="choice adv-${a.dom}" data-buyadv="${a.id}" ${aff?"":"disabled"}>
+    const spent=!!S._advBought;
+    return `<button class="choice adv-${a.dom}" data-buyadv="${a.id}" ${(aff&&!spent)?"":"disabled"}>
       <div class="cl"><span class="mk">${a.found?"✦":"·"}</span><span class="lbl">${esc(a.name)}${ahead?" — of the coming age":""}</span></div>
       <div class="ch">${esc(a.blurb)}</div>
       <div class="costs"><span class="chip know">${c} knowledge</span>${a.found?`<span class="chip up">foundation</span>`:""}${ahead?`<span class="chip down">reached for early</span>`:""}
         ${Object.keys(a.fac||{}).map(k=>`<span class="chip fac ${a.fac[k]>0?"up":"down"}">${S.facs[k].name} ${a.fac[k]>0?"+":""}${a.fac[k]}</span>`).join("")}</div>
       <div class="ch" style="color:var(--brass-dim);margin-top:3px">${esc(a.gives)}</div>
-      ${aff?"":`<div class="why">The realm does not yet know enough.</div>`}
+      ${spent?`<div class="why">The scholars have had their year. One advance in a turn.</div>`:(aff?"":`<div class="why">The realm does not yet know enough.</div>`)}
     </button>`;}).join("");
   const wkHtml=wks.map(w=>{
     const n=workCount(S,w.id), g=workGold(S,w), y=workYield(w,n);
@@ -240,11 +244,11 @@ function renderAdvance(){
         <div class="register">${held.map(w=>{const n=workCount(S,w.id);let y=0;for(let i=0;i<n;i++)y+=workYield(w,i);
           return `<div class="regrow"><span class="rn">${esc(w.name)}${n>1?` ×${n}`:""}</span><span class="rv">+${y.toFixed(2)}/yr</span></div>`;}).join("")}
           <div class="regrow tot"><span class="rn">All foundations</span><span class="rv">+${worksKnowledge(S).toFixed(2)}/yr</span></div></div>`;})()}
-    <div class="subhead">Works — built with gold, and paying knowledge forever</div>
+    <div class="subhead">Works — built with gold, and paying knowledge forever <small style="color:var(--dim)">· found as many as the treasury will bear; they do not cost you an advance</small></div>
     <div class="choices">${wkHtml||`<div class="sit-text">No new works can be founded in this age.</div>`}</div>
     <div class="choices"><button class="choice" data-skipadv="1">
-      <div class="cl"><span class="mk">›</span><span class="lbl">Fund nothing this season</span></div>
-      <div class="ch">the knowledge keeps; the realm waits</div></button></div>`;
+      <div class="cl"><span class="mk">›</span><span class="lbl">${(S._advBought||(S._worksBuilt||0))?"Enough building for this season":"Fund nothing this season"}</span></div>
+      <div class="ch">${(S._advBought||(S._worksBuilt||0))?"the ledgers are closed and the court moves on":"the knowledge keeps; the realm waits"}</div></button></div>`;
 }
 function doBuyAdvance(id){
   const a=ADVANCES.find(x=>x.id===id); if(!a)return;
@@ -255,7 +259,8 @@ function doBuyAdvance(id){
   if(a.effect)a.effect(S);
   S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, ${S.nation} took up ${a.name.replace(/^The /,"the ")}. ${a.gives}`});
   const crossed=checkEraAdvance(S);
-  S.result={out:`${a.blurb}\n\n${crossed?`And with it the realm crosses into a new age: ${eraDef(S).name}. The business of the court will not be what it was.`:a.gives}`,fortune:crossed?"good":null,next:"advance"};
+  S._advBought=true;
+  S.result={out:`${a.blurb}\n\n${crossed?`And with it the realm crosses into a new age: ${eraDef(S).name}. The business of the court will not be what it was.`:a.gives}`,fortune:crossed?"good":null,next:"advstay"};
   S.phase="outcome"; checkMilestones(); render();
 }
 function doBuyWork(id){
@@ -263,11 +268,12 @@ function doBuyWork(id){
   const n=workCount(S,w.id), g=workGold(S,w), y=workYield(w,n);
   S.treasury-=g;
   S.workCount=S.workCount||{}; S.workCount[w.id]=n+1;
+  S._worksBuilt=(S._worksBuilt||0)+1;
   if(!S.works.includes(w.id))S.works.push(w.id);
   for(const k in (w.fac||{})) S.facs[k].mood=clamp(S.facs[k].mood+w.fac[k]);
   if(w.effect)w.effect(S);
   S.chronicle.push({year:S.year,text:`In ${S.year}, ${n?`a further ${w.name.replace(/^The /,"")}`:w.name.replace(/^The /,"the ")} was founded at the crown's charge.`});
-  S.result={out:`${w.blurb}\n\nIt will yield ${y.toFixed(2)} knowledge a year for as long as ${S.nation} stands${n?` — the realm now keeps ${n+1} of them.`:"."}`,fortune:null,next:"advance"};
+  S.result={out:`${w.blurb}\n\nIt will yield ${y.toFixed(2)} knowledge a year for as long as ${S.nation} stands${n?` — the realm now keeps ${n+1} of them.`:"."}`,fortune:null,next:"advstay"};
   S.phase="outcome"; render();
 }
 function renderCourt(){
@@ -329,7 +335,11 @@ function renderCourt(){
           <div class="cl"><span class="mk">›</span><span class="lbl">Designate ${esc(k.name)} (${k.age}) as heir${h&&h.id===k.id?" — current heir by law":""}</span></div>
           <div class="ch">overrides the default order of succession; the passed-over will remember</div>
           <div class="costs">${h&&h.id!==k.id?`<span class="chip down">passed-over kin may turn rival</span>`:`<span class="chip up">confirms the law's choice</span>`}</div></button>`).join("");
-      if(!kids.length){
+      /* A sovereign does not wait until the nursery is empty to think about
+         this. One frail child, or a childless middle age, is when adoption
+         and designation actually got used. */
+      const thin=kids.length<=1&&(S.monarch.age>=34||!kids.length);
+      if(thin){
         const kinD=S.family.filter(p=>["sibling","nephew","uncle"].includes(p.rel)&&p.alive).sort((a,b)=>b.age-a.age).slice(0,5);
         opts+=kinD.map(sb=>`<button class="choice" data-designate="${sb.id}">
           <div class="cl"><span class="mk">›</span><span class="lbl">Designate ${esc(sb.name)}, the sovereign's ${relLabel(sb)} (${sb.age}), as heir</span></div>
@@ -348,7 +358,9 @@ function renderCourt(){
     body=`<div class="choices">${opts||`<div class="sit-text">The succession stands as the law provides${h?` — ${esc(h.name)} is heir`:""}.</div>`}</div>`;
   }
   const skip=`<div style="margin-top:14px;text-align:right"><button class="cont" id="skipCourt" style="opacity:.8">Let the season pass ungoverned → <span style="font-size:10px;color:var(--dim)">(−4 Stability, Legitimacy suffers)</span></button></div>`;
-  const who=S.pm?`${esc(S.pm.holder)}, ${esc(S.pm.office)},`:`${esc(styled(S,S.monarch))} ${S.regency?"(under regency)":""}`;
+  const who=pmGoverns(S)?`${esc(S.pm.holder)}, ${esc(S.pm.office)},`
+    :(!isMonarchy(S)&&S.pm)?`${esc(S.pm.holder)}, ${esc(S.pm.office)},`
+    :`${esc(styled(S,S.monarch))} ${S.regency?"(under regency)":""}`;
   return `<div class="eyebrow">Court phase — your governing act</div><div class="sit-title">${who} governs</div>${tabs}${body}${skip}`;
 }
 
@@ -555,7 +567,7 @@ function renderSuccession(){
         <button class="choice" data-crisis="wealth"><div class="cl"><span class="mk">›</span><span class="lbl">Let the ${S.gov.institutions.length?"chamber":"great houses"} choose from the wealthiest houses</span></div>
           <div class="ch">a peaceful transfer — to whichever house gold has raised highest. The old House falls.</div>
           <div class="costs"><span class="chip fac up">Aristocracy ▲</span><span class="chip fac up">Merchants ▲</span><span class="chip down">the House of ${esc(S.house)} ends</span></div></button>
-        ${S.pm?`<button class="choice" data-extinct="1"><div class="cl"><span class="mk">›</span><span class="lbl">Declare the crown extinct</span></div>
+        ${pmGoverns(S)?`<button class="choice" data-extinct="1"><div class="cl"><span class="mk">›</span><span class="lbl">Declare the crown extinct</span></div>
           <div class="ch">no new house. No new sovereign. The chamber governs alone — and this chronicle ends.</div>
           <div class="costs"><span class="chip down">the monarchy of ${esc(S.nation)} ends forever</span><span class="chip">ends this chronicle</span></div></button>`
         :`<button class="choice" data-crisis="arms"><div class="cl"><span class="mk">›</span><span class="lbl">Let a contest of arms decide it</span></div>
@@ -591,11 +603,21 @@ function renderQuiet(){
     <div class="sit-text">No crisis reaches the throne this season. The realm turns beneath you, waiting to be governed.</div>
     <button class="cont" id="quietGo">To the court phase →</button>`;
 }
+/* Mood and influence are the standing; the swing is everything a campaign
+   does that a ledger cannot predict. Showing all three means an upset
+   reads as an upset rather than as a bug. */
+function standingRows(er){
+  if(!er||!er.standings)return "";
+  return `<div class="press" style="margin:8px 0">
+    <div class="gt">How the chamber was carried</div>
+    ${er.standings.map((st,i)=>`<div class="prow"><span class="pn">${i===0?"◆":"◇"} ${esc(st.name)} <small style="color:var(--dim)">· mood ${Math.round(st.mood)} · influence ${Math.round(st.strength)} · swing +${st.swing}</small></span><span class="pw">${st.score}</span></div>`).join("")}
+    <div class="pnote">${er.upset?"An upset — the standing favoured another interest, and the campaign went the other way.":"The standing held; the campaign changed nothing."}</div></div>`;
+}
 function renderElection(){
   const er=S._electionResult; const ch=er.winner!==S.pm.bloc;
   return `<div class="eyebrow">Election — the chamber renewed</div><div class="sit-title">The Country Speaks</div>
     <div class="sit-text">The writs return. ${ch?`The ${esc(S.facs[er.winner].name)} interest has carried the chamber — the government changes hands.`:`The ${esc(S.facs[er.winner].name)} interest is returned to power.`}</div>
-    ${er.standings.map((st,i)=>`<div class="sit-text" style="margin:0 0 6px">${i===0?"◆":"◇"} ${esc(st.name)} — ${st.score}</div>`).join("")}
+    ${standingRows(er)}
     <div class="sit-text" style="color:var(--brass)">Under this government: ${esc(BLOC_DESCS[er.winner]||"no change to the toolbox")}.</div>
     <button class="cont" id="electGo">The ministry forms →</button>`;
 }
@@ -644,6 +666,7 @@ function renderPmPick(){
   const f=S._pmField||[];
   return `<div class="eyebrow">The crown's gift</div><div class="sit-title">Who Shall Have the Ministry</div>
     <div class="sit-text">The country has returned a chamber. The crown is not obliged to take the slightest notice of that, and this one does not have to. Name a ${esc(S._pmOffice||"Prime Minister")}.</div>
+    ${standingRows(S._pmStanding)}
     <div class="choices">${f.map((c,i)=>`<button class="choice ${c.winner?"":"dyn-role"}" data-pmpick="${i}">
       <div class="cl"><span class="mk">${["I","II","III"][i]||"•"}</span><span class="lbl">${esc(c.holder)} — ${esc(S.facs[c.bloc].name)} interest</span></div>
       <div class="ch">${c.winner?"carried the chamber; the obvious man, which is its own kind of argument":"lost the chamber, and would govern only because you say so"}</div>
@@ -662,6 +685,39 @@ function renderPmOffer(){
       <button class="choice dyn-role" data-pmoffer="refuse"><div class="cl"><span class="mk">II</span><span class="lbl">Refuse, and send it back to the country</span></div>
         <div class="ch">a dissolution, a campaign, and an answer you may not like${n>1?` — and this is refusal number ${n}`:""}</div>
         <div class="costs"><span class="chip down">−${4*n} Stability</span><span class="chip down">legitimacy −${3*n}</span><span class="chip">if they are returned, the right is spent for good</span></div></button>
+    </div>`;
+}
+function renderHeirAge(){
+  const h=S.family.find(p=>p.id===S._heirAge&&p.alive);
+  if(!h){ S._heirAge=null; toDynCourt(); return ""; }
+  const direct=heirIsDirect(S,h);
+  const opt=(k,mk,lbl,ch,chips)=>`<button class="choice dyn-desig" data-heirage="${k}">
+    <div class="cl"><span class="mk">${mk}</span><span class="lbl">${lbl}</span></div>
+    <div class="ch">${ch}</div><div class="costs">${chips}</div></button>`;
+  return `<div class="eyebrow">The heir comes of age</div>
+    <div class="sit-title">${esc(h.name)}, ${h.age}</div>
+    <div class="sit-text">${direct
+      ? `The sovereign's own ${esc(relLabel(h))} is grown, and the realm has begun to look past the present reign. What is made of them now is what the country gets later.`
+      : `${esc(h.name)} is the heir by law and by nobody's particular enthusiasm — the sovereign's ${esc(relLabel(h))}, not their child. The claim is sound on paper. Paper has never been the difficulty.`}</div>
+    <div class="choices">
+      ${opt("statecraft","›","Schooled in law and statecraft",
+        "clerks, statutes and the long grey business of governing",
+        `<span class="chip up">+3 Stability</span><span class="chip up">legitimacy steadies</span><span class="chip fac up">Reformers ▲</span>`)}
+      ${opt("command","⚔","Given a command on the frontier",
+        "the army meets its future sovereign, in weather",
+        `<span class="chip fac up">Officer Corps +9</span><span class="chip up">+4 Arms</span>`)}
+      ${opt("progress","☗","Sent on progress through the provinces",
+        "months of bad roads and a great many speeches",
+        `<span class="chip down">−16 gold</span><span class="chip fac up">Provinces +9</span><span class="chip fac up">Peasantry +5</span>`)}
+      ${direct?"":opt("adopt_in","✦","Brought into the household and styled direct heir",
+        "the claim was always sound; what it lacked was the look of inevitability",
+        `<span class="chip up">legitimacy ▲▲</span><span class="chip fac down">Aristocracy −6</span>`)}
+      ${direct?"":opt("bind","♥","Married into the direct line",
+        "two claims made one, by contract and chapel",
+        `<span class="chip down">−12 gold</span><span class="chip fac up">Aristocracy +7</span><span class="chip up">a rival claim settled</span>`)}
+      ${opt("leave","·","Left to their own household",
+        "nothing spent, nothing decided",
+        `<span class="chip down">−2 Stability</span><span class="chip">they will arrive a stranger</span>`)}
     </div>`;
 }
 function renderSeatShift(){

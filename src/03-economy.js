@@ -8,13 +8,28 @@ const TAX_TIERS={
   oppressive:{label:"Oppressive",mult:1.8,stab:-5,fac:{peasantry:-8,merchants:-5,provinces:-4}},
 };
 const TAX_ORDER=["none","light","moderate","heavy","oppressive"];
+/* Development was clamped at 100, so a realm hit the ceiling in the middle
+   ages and every further coin poured into roads and harbours did precisely
+   nothing — which is why sponsoring trade stops paying at Powder & Fortress.
+   A country's wealth is not bounded at an arbitrary hundred; the ceiling
+   rises with the age. */
+function devCap(S){ return 100+eraIdx(S)*22; }
+function lowerDevelopment(S,n){
+  /* a plague must not also clamp a rich realm back down to 100 */
+  S.development=Math.max(0,Math.min(devCap(S),(S.development||0)-n));
+  return S.development;
+}
+function raiseDevelopment(S,n){
+  S.development=Math.max(0,Math.min(devCap(S),(S.development||0)+n));
+  return S.development;
+}
 function income(S){
   /* crown lands sold in a capitulation are gone for good — the ceiling drops */
   const base=(16+S.development*0.55)*(1+(S._taxBonus||0))*(1-(S._landsSold||0));
   return Math.round(base*TAX_TIERS[S.taxRate].mult)+(S._companyGold||0); }
 function upkeep(S){
   let u=10+Math.round(S.military*0.4)+S.privileges*4;
-  u+=Math.round(S.family.filter(p=>p.alive).length*1.2); // the court eats
+  u+=Math.round(householdSize(S)*2.4); // the civil list — the household, not every cousin
   if(S.gov.cabinet)u+=5;
   u+=(S._armyUpkeep||0);
   u+=(S._upkeepAge||0);   /* rails, sewers, schools and locks do not maintain themselves */
@@ -46,8 +61,8 @@ function budgetBreakdown(S){
   up.push("10 court");
   up.push(`${Math.round(S.military*0.4)} arms`);
   if(S.privileges)up.push(`${S.privileges*4} privileges`);
-  const kin=(S.family||[]).filter(p=>p.alive).length;
-  if(kin)up.push(`${Math.round(kin*1.2)} royal household`);
+  const kin=householdSize(S);
+  if(kin)up.push(`${Math.round(kin*2.4)} royal household`);
   if(S.gov.cabinet)up.push("5 cabinet");
   if(S._armyUpkeep)up.push(`${S._armyUpkeep} standing army`);
   if(S._upkeepAge)up.push(`${S._upkeepAge} public works and services`);
@@ -59,6 +74,11 @@ function budgetBreakdown(S){
 }
 /* ---------- mortality (era-scaled; Dynastic is dangerous) ---------- */
 function mortalityChance(age,years){
+  /* Nobody outlives the record. From ninety the curve steepens hard and by
+     a hundred it is certain — no more brothers-in-law dead at 113. */
+  if(age>=100)return 1;
+  if(age>=90)return Math.min(1,0.55+(age-90)*0.05)*Math.min(1,years/5);
+
   // per span of `years`; Dynastic-era medicine
   let annual;
   if(age<10) annual=0.015; else if(age<30) annual=0.008; else if(age<45) annual=0.014;

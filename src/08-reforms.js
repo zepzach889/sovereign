@@ -35,7 +35,7 @@ const REFORMS=[
     blurb:"Create a standing council of ministries. It costs upkeep, but a governed realm is a wealthier, steadier one — and it lets you appoint able men to office.",
     nameSuggest:["Privy Council","The Cabinet","Council of State","The Ministry"],
     available:S=>!S.gov.cabinet,
-    enact:(S,power,name)=>{ S.gov.cabinet=name; S.development=clamp(S.development+5); S.facs.merchants.mood=clamp(S.facs.merchants.mood+4);
+    enact:(S,power,name)=>{ S.gov.cabinet=name; raiseDevelopment(S,5); S.facs.merchants.mood=clamp(S.facs.merchants.mood+4);
       S.reforms.push("cabinet");
       return `the Crown established the ${name}, and the daily governing of ${S.nation} passed from whim into standing office.`; }},
   { id:"law_reform",name:"Reform the Succession Law",tag:"dynastic",pmin:0,pmax:0,pdef:0,lawPick:true,
@@ -51,7 +51,7 @@ const REFORMS=[
   { id:"devolve",name:"Devolve Powers to a Chamber",tag:"structural",pmin:6,pmax:20,pdef:10,
     blurb:"The Crown, of its own will, lays a further measure of its power upon a chamber. History rarely records it done gladly — but it is the one road to reform that no revolt has to force.",
     nameSuggest:["Act of Devolution","The Concession","Grant of Governance","The Yielding"],
-    available:S=>!S.pm&&S.gov.institutions.length>0&&S.gov.crown.power>=6,
+    available:S=>!pmGoverns(S)&&S.gov.institutions.length>0&&S.gov.crown.power>=6,
     enact:(S,power,name)=>{ const inst=S.gov.institutions[S._reformDest!=null?S._reformDest:0]||S.gov.institutions[0];
       transferPower(S,inst,power);
       (composition[inst.composition]||[]).forEach(k=>{S.facs[k].mood=clamp(S.facs[k].mood+Math.round(power*0.4));});

@@ -8,6 +8,7 @@ function beginTurn(first){
   for(const k in S.facs){ const f=S.facs[k]; const m=Math.round(f.mood);
     f.delta=(f.lastMood!=null)?(m-f.lastMood):0; f.lastMood=m; }
   S.phaseDone={event:false,court:false,advance:false,dynastic:false};
+  S._advBought=false; S._worksBuilt=0;
   S.currentEvent=null; S.result=null; S.openReform=null; S.pending=null; S.dyn=null;
   S.tab="govern";
   const trans=transitionReady(S);
@@ -60,7 +61,7 @@ function afterElection(){
   }
   /* The country has spoken. What happens next depends entirely on how much
      of the constitution the crown still holds. */
-  if(crownAppointsPm(S)){ S._pmField=pmField(S,er.winner); S.phase="pmpick"; render(); return; }
+  if(crownAppointsPm(S)){ S._pmField=pmField(S,er.winner,er); S.phase="pmpick"; render(); return; }
   if(pmContested(S)&&hasPrerog(S,"ministry")){
     S._pmOffer={bloc:er.winner,holder:pmName(),age:44+rand(16)};
     S.phase="pmoffer"; render(); return;
@@ -75,7 +76,8 @@ function afterElection(){
    is the whole constitutional question. The crown's gift, the chamber's
    choice, or the chamber's choice that the crown cannot refuse.
    ===================================================================== */
-function pmField(S,winnerBloc){
+function pmField(S,winnerBloc,er){
+  if(er)S._pmStanding=er;
   const set=new Set(); S.gov.institutions.forEach(i=>(composition[i.composition]||[]).forEach(k=>set.add(k)));
   let blocs=[...set].filter(k=>S.facs[k]&&S.facs[k].present);
   /* whoever carried the chamber is always on the list, whatever else is */
@@ -110,10 +112,12 @@ function doPmPick(i){
   if(!f){ onward(); return; }
   if(!f.winner){
     /* choosing against the chamber is the prerogative working exactly as
-       designed, and exactly as resented */
+       designed, and exactly as resented — but the interest that got the
+       office is delighted, which is the whole reason a crown does this */
     S.stability=clamp(S.stability-6);
     S.legitPen=(S.legitPen||0)+4;
     (composition[(S.gov.institutions[0]||{}).composition]||[]).forEach(k=>{ if(S.facs[k])S.facs[k].mood=clamp(S.facs[k].mood-5); });
+    if(S.facs[f.bloc])S.facs[f.bloc].mood=clamp(S.facs[f.bloc].mood+12);
     bumpPressure(S,"constitutional",7);
   }
   installPm(S,f.bloc,f.holder,f.winner?"chamber":"crown");
@@ -161,7 +165,7 @@ function doPmRefuse(){
   S.chronicle.push({year:S.year,text:`In ${S.year}, the country answered the Crown's dissolution as the palace had hoped, and the benches came back rearranged.`});
   S.nextElection=S.turn+electionEvery(S);
   /* the crown won the argument; the crown now chooses */
-  S._pmField=pmField(S,er.winner);
+  S._pmField=pmField(S,er.winner,er);
   S.phase="pmpick"; render();
 }
 function doSeatShift(){
@@ -194,6 +198,7 @@ function routeNext(nx){
   if(nx==="court"){afterEvent();}
   else if(nx==="dynastic"){afterCourt();}
   else if(nx==="advance"){afterAdvance();}
+  else if(nx==="advstay"){stayAdvance();}
   else if(nx==="dyncourt"){toDynCourt();}
   else if(nx==="convention"){toConvention();}
   else if(nx==="congress"){toCongress();}
@@ -207,6 +212,8 @@ function continueFlow(){
   const nx=S.result&&S.result.next; S.result=null;
   if(S._forcedChamber){ S._afterName=nx; S.phase="chname"; render(); return; }
   if(S._pmPending&&!S.pm){ S._pmPending=false; S._afterName=nx; S.phase="pmname"; render(); return; }
+  if(S._pmFieldPending&&S.pm){ S._pmFieldPending=false;
+    S._pmField=pmField(S,runElection().winner); S._pmFieldAfter=nx; S.phase="pmpick"; render(); return; }
   routeNext(nx);
 }
 function afterCourt(){
@@ -217,6 +224,9 @@ function afterCourt(){
 function afterAdvance(){
   S.phaseDone.advance=true; S.result=null; toDynastic();
 }
+/* stay in the age — a work has been founded, and the treasury may yet
+   bear another */
+function stayAdvance(){ S.result=null; S.phase="advance"; render(); }
 function toDynastic(){
   if(regimeIs(S,"junta")){ S.phase="juntaexit"; render(); return; }
   if(regimeIs(S,"republic")&&S.rep&&S.turn>=S.rep.nextVote){
@@ -228,7 +238,50 @@ function toDynastic(){
   if(beat){ S.dyn=beat; S.phase="dynastic"; render(); return; }
   toDynCourt();
 }
-function toDynCourt(){ S.dyn=null; S.result=null; S.phase="dyncourt"; render(); }
+function heirIsDirect(S,h){
+  return !!(h&&h.parents&&h.parents.indexOf(S.monarch.id)>=0);
+}
+function doHeirAge(kind){
+  /* a stale button from a previous render must not apply the beat twice —
+     the chaos runner found exactly that, clicking it from the outcome
+     screen and overwriting a result that was still pending */
+  if(S.phase!=="heirage")return;
+  const h=S.family.find(p=>p.id===S._heirAge&&p.alive); S._heirAge=null;
+  if(!h){ toDynCourt(); return; }
+  const direct=heirIsDirect(S,h);
+  let out;
+  if(kind==="statecraft") out={cost:{stability:+3},fac:{aristocracy:+3,reformers:+2},
+    effect:S2=>{ h.trait=h.trait||"able"; S2.legitPen=Math.max(0,(S2.legitPen||0)-4); },
+    chron:S2=>`${h.name}, the heir, was given over to the lawyers and the clerks, and learned the realm as a thing that is administered.`,
+    out:`Statutes, revenues, the assize and the long grey business of governing. It is not a glamorous education and it produces sovereigns who are hard to lie to.`};
+  else if(kind==="command") out={cost:{stability:+2,arms:+4},fac:{officers:+9,aristocracy:+2},
+    effect:S2=>{ h.command=true; },
+    chron:S2=>`${h.name}, the heir, took a command on the frontier and was seen to be capable in front of men who would remember it.`,
+    out:`The army has now met its future sovereign, in weather, and formed a view. That view will matter enormously the first time somebody suggests a coup.`};
+  else if(kind==="progress") out={cost:{gold:-16,stability:+4},fac:{provinces:+9,peasantry:+5},
+    effect:S2=>{ provinces(S2).forEach(p=>{ p.loyalty=clamp(p.loyalty+4); }); },
+    chron:S2=>`${h.name}, the heir, was sent the length of ${S.nation}, and the far country saw with its own eyes who would follow.`,
+    out:`Months of bad roads, worse dinners and a great many speeches. The provinces are absurdly pleased, and will be for a generation.`};
+  else if(kind==="adopt_in") out={cost:{stability:+5},fac:{aristocracy:-6,clergy:+5},
+    effect:S2=>{ h.rel="child"; h.styled=true; S2.legitPen=Math.max(0,(S2.legitPen||0)-9); },
+    chron:S2=>`${h.name} was brought into the sovereign's own household and styled as the direct heir; the great houses were not consulted.`,
+    out:`On paper the claim was always sound. What it lacked was the appearance of inevitability, which is most of what a succession is — and that has now been supplied, at the price of every family that had hoped otherwise.`};
+  else if(kind==="bind") out={cost:{gold:-12,stability:+3},fac:{aristocracy:+7},
+    effect:S2=>{ h.bound=true; S2.rival=null; },
+    chron:S2=>`${h.name}, the collateral heir, was married into the direct line, and two claims became one.`,
+    out:`A contract, a chapel, and a succession that no longer has two answers. Cheaper than a war and considerably more durable than a proclamation.`};
+  else out={cost:{stability:-2},fac:{aristocracy:+2},
+    chron:S2=>`${h.name}, the heir, was left to their own household and their own devices.`,
+    out:`Nothing is spent and nothing is decided. They will arrive at the throne as a stranger to the army, the provinces and the court — which has worked before, and has also gone very badly.`};
+  applyOutcome(out,"dyncourt"); render();
+}
+function toDynCourt(){
+  /* only enter the beat if the heir is actually there to be decided about */
+  if(S._heirAge&&isMonarchy(S)){
+    const hp=S.family.find(p=>p.id===S._heirAge&&p.alive);
+    if(hp){ S.phase="heirage"; render(); return; }
+    S._heirAge=null;
+  } S.dyn=null; S.result=null; S.phase="dyncourt"; render(); }
 
 /* =====================================================================
    THE OFFICES OF STATE
@@ -272,6 +325,32 @@ const SKILL_BANDS=[
 ];
 function skillBand(v){ return SKILL_BANDS.find(b=>v>=b.min)||SKILL_BANDS[SKILL_BANDS.length-1]; }
 const KIND_DOM={noble:"civil",cleric:"faith",soldier:"martial",lawyer:"law",merchant:"fiscal",steward:"civil"};
+const LOYAL_BANDS=[
+  {min:78,label:"the crown's own man",cls:"up"},
+  {min:56,label:"reliable",cls:"up"},
+  {min:36,label:"his own man",cls:""},
+  {min:0, label:"the chamber's creature",cls:"down"}
+];
+function loyalBand(v){ return LOYAL_BANDS.find(b=>v>=b.min)||LOYAL_BANDS[LOYAL_BANDS.length-1]; }
+function rollLoyalty(S,cand){
+  let v=25+rand(45);
+  if(cand.royal)v+=32;                                 /* blood is blood */
+  if(cand.kind==="noble")v+=6;
+  if(cand.kind==="lawyer"||cand.kind==="merchant")v-=10; /* men with careers */
+  if(cand.trait==="loyal")v+=14; if(cand.trait==="ambitious")v-=16;
+  if(!isMonarchy(S))v-=6;
+  return Math.max(2,Math.min(98,v));
+}
+/* Whether a department actually answers the palace. In the contested band
+   this is the whole question — a disloyal officer is a ministry the crown
+   does not control, sitting inside the crown's own council. */
+function officeHeldByCrown(S,roleId){
+  const h=roleHolder(S,roleId); if(!h)return false;
+  const lo=(h.loyalty==null)?50:h.loyalty;
+  if(crownAppointsPm(S))return lo>=28;
+  if(pmGoverns(S))return lo>=72;
+  return lo>=48;
+}
 function rollSkill(S,cand,dom){
   let v=20+rand(45);
   if(cand.kind&&KIND_DOM[cand.kind]===dom)v+=22;      /* trained to it */
@@ -291,9 +370,11 @@ function officeField(S,roleId){
   if(S._offField[roleId]&&S._offField[roleId].key===key)return S._offField[roleId].list;
   const list=[];
   const n=2+rand(3);
+  const lean=chance(0.16);   /* a thin year: nobody good is to be had */
   for(let i=0;i<n;i++){
     const c=newCourtier(S);
-    c.skill=rollSkill(S,c,r.dom);
+    c.skill=lean?Math.min(c.skill==null?99:99,Math.max(4,rollSkill(S,c,r.dom)-30)):rollSkill(S,c,r.dom);
+    c.loyalty=rollLoyalty(S,c);
     c.forOffice=roleId;
     list.push(c);
   }
@@ -302,7 +383,8 @@ function officeField(S,roleId){
     roleEligible(S).sort((a,b)=>b.age-a.age).slice(0,3).forEach(p=>{
       list.push({id:p.id,name:p.name,age:p.age,gender:p.gender,trait:p.trait,
         royal:true,alive:true,job:null,bloc:"aristocracy",label:"of the blood",
-        skill:rollSkill(S,{royal:true,trait:p.trait},r.dom),forOffice:roleId});
+        skill:rollSkill(S,{royal:true,trait:p.trait},r.dom),
+        loyalty:rollLoyalty(S,{royal:true,trait:p.trait}),forOffice:roleId});
     });
   }
   S._offField[roleId]={key,list};
@@ -313,6 +395,12 @@ function officeUpkeep(S){
   ROLES.forEach(r=>{
     const h=roleHolder(S,r.id); if(!h)return;
     const sk=(h.skill==null)?50:h.skill;
+    if(!officeHeldByCrown(S,r.id)){
+      /* he is able, and he is not yours. The work gets done; it is simply
+         not done for you. */
+      if(sk>=62&&chance(0.5))bumpPressure(S,"constitutional",2);
+      return;
+    }
     if(sk>=62){
       if(r.dom==="fiscal")S.treasury+=3;
       if(r.dom==="martial")S.military=clamp(S.military+1);
@@ -395,9 +483,9 @@ function matchCandidates(S,p){
   const needs=matchNeed(S);
   const offers=1+rand(3);   /* never nil — a sovereign must be able to act */
   const list=[
-    {kind:"foreign",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-5+rand(11)),
+    {kind:"foreign",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-12+rand(21)),
      note:"kin of a crown beyond the border",chips:[["down","−14 gold"],["up","+4 Arms"],["up","a friend abroad"]]},
-    {kind:"domestic",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-4+rand(9)),
+    {kind:"domestic",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-10+rand(19)),
      note:"of a great house of the realm",chips:[["fac up","Aristocracy +7"],["up","the old blood bound closer"]]},
     {kind:"love",name:nameFor(sg,used),house:null,age:Math.max(16,p.age-3+rand(7)),
      note:"no house worth the name — but they will not be told no",chips:[["up","+6 Stability"],["up","a fertile and willing marriage"],["fac down","Aristocracy −6"],["down","no alliance"]]}
@@ -425,8 +513,11 @@ function matchCandidates(S,p){
 }
 function renderDynCourt(){
   const h=heirOf(S);
-  const unwed=S.family.filter(p=>p.alive&&p.age>=16&&p.age<=55&&!p.spouseId&&!p.outHouse
-    &&!["spouse","dowager","childspouse","inlaw","former"].includes(p.rel));
+  /* You arrange matches for the sovereign, the heir, and the sovereign's
+     own children. Everyone else's wedding happens without you and turns up
+     in the chronicle, which is how it actually worked. */
+  const unwed=S.family.filter(p=>p.alive&&p.age>=16&&p.age<=55&&!p.spouseId&&!p.outHouse&&!p.cadet
+    &&["child","sibling"].includes(p.rel));
   const elig=roleEligible(S);
   let opts="";
   if(!spouseOf(S)&&S.monarch.age>=16&&!S.regency)
@@ -516,7 +607,7 @@ function renderRolePick(){
     return `<button class="choice ${c.royal?"dyn-desig":"dyn-role"}" data-rolewho="${c.royal?c.id:"c"+c.id}">
       <div class="cl"><span class="mk">${c.royal?"✦":"›"}</span><span class="lbl">${who}</span></div>
       <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):(c.royal?"nothing much is known of them yet":"an unremarkable record and no enemies")}</div>
-      <div class="costs"><span class="chip ${b.cls}">${esc(b.label)} at ${esc(r.dom==="martial"?"soldiering":r.dom==="fiscal"?"money":r.dom==="faith"?"the pulpit":r.dom==="law"?"the law":"administration")}</span>${Object.keys(r.fac).map(k=>S.facs[k]?`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`:"").join("")}${c.royal?`<span class="chip up">the dynasty is pleased</span><span class="chip down">a relative with a power base</span>`:`<span class="chip fac up">${esc((S.facs[c.bloc]||{name:"the council"}).name)} +4</span><span class="chip up">no claim on the throne</span>`}</div></button>`;};
+      <div class="costs"><span class="chip ${b.cls}">${esc(b.label)} at ${esc(r.dom==="martial"?"soldiering":r.dom==="fiscal"?"money":r.dom==="faith"?"the pulpit":r.dom==="law"?"the law":"administration")}</span><span class="chip ${loyalBand(c.loyalty==null?50:c.loyalty).cls}">${esc(loyalBand(c.loyalty==null?50:c.loyalty).label)}</span>${Object.keys(r.fac).map(k=>S.facs[k]?`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`:"").join("")}${c.royal?`<span class="chip up">the dynasty is pleased</span><span class="chip down">a relative with a power base</span>`:`<span class="chip fac up">${esc((S.facs[c.bloc]||{name:"the council"}).name)} +4</span><span class="chip up">no claim on the throne</span>`}</div></button>`;};
   return `<div class="eyebrow">An office of state</div><div class="sit-title">${esc(roleName(S,r))}</div>
     <div class="sit-text">${esc(r.hint)}. These are the names that can be got for this post, this year — a different post would bring different men, and a good one is not always among them.</div>
     ${servants.length?`<div class="subhead">Servants of the state</div><div class="choices">${servants.map(card).join("")}</div>`:""}
@@ -537,6 +628,8 @@ function doRole(id,who){
   /* the competence the player was shown is the competence they get */
   if(chosen&&chosen.skill!=null)p.skill=chosen.skill;
   else if(p.skill==null)p.skill=rollSkill(S,p,r.dom);
+  if(chosen&&chosen.loyalty!=null)p.loyalty=chosen.loyalty;
+  else if(p.loyalty==null)p.loyalty=rollLoyalty(S,p);
   if(S._offField)delete S._offField[r.id];
   if(isCourt){
     p.job=r.id;
@@ -604,6 +697,13 @@ function endTurn(){
   S.year+=span; S.turn++;
   // ages
   S.monarch.age+=span; S.family.forEach(p=>{ if(p.alive)p.age+=span; });
+  /* an heir crossing into adulthood is a decision, not a birthday */
+  (function(){
+    const h=heirOf(S); if(!h||!h.alive||h.comeOfAge)return;
+    if(h.age<16||h.age>26)return;
+    if(S.regency||!isMonarchy(S))return;
+    h.comeOfAge=true; S._heirAge=h.id;
+  })();
   if(S.regency){ S.regency.age+=span;
     const rp=S.regency.personId?S.family.find(p=>p.id===S.regency.personId):null;
     if(S.regency.personId&&(!rp||!rp.alive)){
@@ -655,7 +755,7 @@ function endTurn(){
   // knowledge accrues
   S.knowledge=Math.round((S.knowledge+knowledgeIncome(S)*span)*10)/10;
   // development creep
-  if(S.stability>(S.gov.cabinet?50:58))S.development=clamp(S.development+1);
+  if(S.stability>(S.gov.cabinet?50:58))raiseDevelopment(S,1);
   if(S.gov.cabinet&&S.stability<60)S.stability=clamp(S.stability+1);
   // contentment fades from above; grievances heal slowly from below
   for(const k in S.facs){ const f=S.facs[k]; if(f.present){
@@ -680,6 +780,13 @@ function endTurn(){
   if(S.treasury<=-200){S.treasury=-120;S.privileges=Math.max(0,S.privileges-2);S.military=clamp(S.military-8);S.facs.merchants.mood=clamp(S.facs.merchants.mood-8);S.chronicle.push({year:S.year,cls:'rupture',text:'In '+S.year+', the Crown of '+S.nation+' defaulted upon its debts; creditors were ruined, privileges revoked, and regiments disbanded to stanch the bleeding.'});}
   if(S.facs.aristocracy.mood<30||S.facs.peasantry.mood<28)S.stability=clamp(S.stability-4);
   if(S.rival)S.stability=clamp(S.stability-2);
+  /* kin drift out of the household and into their own branches */
+  (S.family||[]).forEach(p=>{
+    if(shouldCadet(S,p)){
+      p.cadet=true;
+      if(!p.branch)p.branch=`${p.name}'s line`;
+    }
+  });
   officeUpkeep(S);
   // births
   maybeBirth(span);
@@ -720,7 +827,7 @@ function maybeBirth(span){
         const p=Math.min(0.72, span*0.11*load*late*(S.monarch.love?1.25:1));
         if(!chance(p))continue;
         const g=chance(0.5)?"m":"f";
-        const c=makePerson(S,"child",g,0,null,[S.monarch.id,sp.id]);
+        const c=makePerson(S,"child",g,rand(5),null,[S.monarch.id,sp.id]);
         S.family.push(c); born++;
         S.chronicle.push({year:S.year,text:`In ${S.year}, a ${g==="m"?"son":"daughter"}, ${c.name}, was born to ${styled(S,S.monarch)}.`});
         S.notices.push({t:"b",name:c.name,g:g});
@@ -728,6 +835,14 @@ function maybeBirth(span){
       }
     }
   }
+  /* cadet weddings, resolved off-screen */
+  branchKin(S).filter(p=>p.alive&&!p.spouseId&&p.age>=18&&p.age<=45).forEach(p=>{
+    if(!chance(span*0.10))return;
+    const sg=p.gender==="m"?"f":"m";
+    const sp=makePerson(S,"inlaw",sg,Math.max(17,p.age-4+rand(9)));
+    sp.spouseId=p.id; p.spouseId=sp.id; sp.cadet=true; S.family.push(sp);
+    S.chronicle.push({year:S.year,text:`In ${S.year}, ${p.name} of the ${esc0(p.branch||"cadet line")} married ${sp.name}, and the court noted it in passing.`});
+  });
   S.family.filter(c=>(c.rel==="sibling"||c.rel==="uncle")&&c.alive&&c.spouseId).forEach(c=>{
     const cs=personById(S,c.spouseId); if(!cs||!cs.alive)return;
     const bearer=(c.gender==="f")?c.age:cs.age;

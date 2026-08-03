@@ -55,7 +55,7 @@ function politburo(S){ return S.politburo||[]; }
 function tickPlan(S,span){
   if(!regimeIs(S,"people"))return;
   const p=S.plan||{industry:40,consumer:40,arms:20};
-  S.development=clamp(S.development+ (p.industry/100)*2.2*span/4);
+  raiseDevelopment(S,(p.industry/100)*2.2*span/4);
   const want=48, got=p.consumer;
   S.stability=clamp(S.stability + ((got-want)/100)*16*span/4);
   S.military=clamp(S.military + ((p.arms-18)/100)*5*span/4);

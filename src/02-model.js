@@ -111,6 +111,14 @@ function seatNow(S){ return pmGoverns(S)?"ministry":"crown"; }
    the crown needs money. That is not a simplification of the period; it
    is the reason parliaments met at all.
    ===================================================================== */
+/* A chamber summoned rather than elected is not permanently in session.
+   You cannot dissolve what is not sitting, and there is no early poll to
+   call when there was never a scheduled one. */
+function chamberSitting(S){
+  if(!S.gov.institutions.length)return false;
+  if(electionMode(S)==="summons")return !!S._sitting;
+  return true;
+}
 function electionMode(S){
   if(!isMonarchy(S))return "cycle";
   if(!S.pm)return "none";
@@ -172,9 +180,15 @@ function runElection(){
   if(!set.size)set.add("aristocracy");
   const live=[...set].filter(k=>S.facs[k]&&S.facs[k].present);
   const use=live.length?live:[...set];
-  const standings=use.map(k=>({k,name:S.facs[k].name,score:Math.round(S.facs[k].mood*0.6+S.facs[k].strength*0.4+rand(18))}));
+  const standings=use.map(k=>{
+    const base=S.facs[k].mood*0.6+S.facs[k].strength*0.4;
+    const swing=rand(18);
+    return {k,name:S.facs[k].name,mood:S.facs[k].mood,strength:S.facs[k].strength,
+            base:Math.round(base),swing,score:Math.round(base+swing)};
+  });
   standings.sort((a,b)=>b.score-a.score);
-  return {standings,winner:standings[0].k};
+  const byBase=standings.slice().sort((a,b)=>b.base-a.base);
+  return {standings,winner:standings[0].k,expected:byBase[0].k,upset:byBase[0].k!==standings[0].k};
 }
 function regimeLabel(S){
   if(regimeIs(S,"junta"))return "Provisional Military Government";

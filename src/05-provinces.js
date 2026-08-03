@@ -70,7 +70,7 @@ function loseProvince(S,p){
   S.provinces=provinces(S).filter(x=>x.id!==p.id);
   S.lostProvinces=S.lostProvinces||[];
   S.lostProvinces.push({name:p.name,seat:p.seat,year:S.year});
-  S.development=clamp(S.development-Math.round(7*p.weight));
+  lowerDevelopment(S,Math.round(7*p.weight));
   S.facs.provinces.strength=clamp(S.facs.provinces.strength-6);
   S._realmShrunk=(S._realmShrunk||0)+1;
 }

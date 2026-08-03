@@ -74,6 +74,44 @@ function relCodeFor(S,p){
   if((S.lineage||[]).some(l=>l.id===p.spouseId)) return "dowager";
   return "kin";
 }
+/* The civil list is short. The sovereign, the consort, the sovereign's
+   own unmarried children, and the heir's household. Everyone else is a
+   relative, not an expense. */
+const HOUSEHOLD_RELS=["spouse","child","grandchild"];
+function inHousehold(S,p){
+  if(!p||!p.alive||p.outHouse||p.cadet)return false;
+  if(p.rel==="spouse")return true;
+  if(p.rel==="child")return !p.spouseId;         /* married out, or still at home */
+  if(p.rel==="childspouse"){                      /* the heir's consort only */
+    const h=heirOf(S); return !!(h&&p.spouseId===h.id);
+  }
+  if(p.rel==="grandchild"){
+    const h=heirOf(S); return !!(h&&p.parents&&p.parents.indexOf(h.id)>=0);
+  }
+  return false;
+}
+function householdSize(S){ return (S.family||[]).filter(p=>inHousehold(S,p)).length; }
+
+/* Who has drifted far enough from the throne to be their own family. A
+   cadet is still kin, still in the Dynasties page, still a claimant if
+   the line ever fails — just not a line item and not a wedding you have
+   to arrange. */
+const CADET_RELS=["uncle","aunt","cousin","nephew","niece","kin","inlaw",
+  "auntmarriage","unclemarriage","sibling-in-law","sister-in-law","brother-in-law"];
+function shouldCadet(S,p){
+  if(!p||!p.alive||p.outHouse||p.cadet)return false;
+  if(p.id===S.monarch.id)return false;
+  const h=heirOf(S); if(h&&p.id===h.id)return false;
+  if(p.job)return false;                          /* serving officers stay at court */
+  if(["spouse","child","childspouse","dowager","former"].includes(p.rel))return false;
+  if(p.rel==="grandchild"){ return !(h&&p.parents&&p.parents.indexOf(h.id)>=0); }
+  if(p.rel==="sibling")return p.age>=30&&!!p.spouseId;  /* married and settled */
+  return p.age>=25;
+}
+function branchKin(S){
+  /* the ones who have left the household but not the chronicle */
+  return (S.family||[]).filter(p=>p.cadet&&p.alive);
+}
 function refreshRelations(S){
   if(!S||!S.monarch)return;
   (S.family||[]).forEach(p=>{ p.rel=relCodeFor(S,p); });

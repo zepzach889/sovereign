@@ -82,6 +82,7 @@ function wire(){
   document.querySelectorAll("[data-pmpick]").forEach(b=>b.onclick=()=>doPmPick(+b.dataset.pmpick));
   document.querySelectorAll("[data-pmoffer]").forEach(b=>b.onclick=()=>{b.dataset.pmoffer==="accept"?doPmAccept():doPmRefuse();});
   const sg=document.getElementById("seatGo");if(sg)sg.onclick=()=>doSeatShift();
+  document.querySelectorAll("[data-heirage]").forEach(b=>b.onclick=()=>doHeirAge(b.dataset.heirage));
   document.querySelectorAll("[data-elecevery]").forEach(b=>b.onclick=()=>{
     const n=+b.dataset.elecevery; const was=electionEvery(S);
     S.electionEvery=n;
@@ -313,7 +314,7 @@ function doSuccHeir(keepName){
   if(wasTrained==="court")S.facs.clergy.mood=clamp(S.facs.clergy.mood+4);
   if(wasTrained==="army")S.facs.officers.mood=clamp(S.facs.officers.mood+4);
   S.chronicle.push({year:S.year,cls:"reign",text:`In ${S.year}, the crown passed to ${styled(S,S.monarch)}${S.regency?", a child, under the guard of a regency":""}; the possession of power went on unbroken.`});
-  S.result={out:S.pm?`The old sovereign is laid to rest, and ${styled(S,S.monarch)} is proclaimed — but the seals of government stay on your desk. The palace changes its portrait; the ministry does not change its address.`:`The old sovereign is laid to rest, and you open your eyes behind those of ${styled(S,S.monarch)}. ${S.regency?"A regency holds the seals until they come of age — hungry years for every faction with an appetite.":"The face has changed. The hand on the wheel has not."}`,fortune:null,next:"endturn2"};
+  S.result={out:pmGoverns(S)?`The old sovereign is laid to rest, and ${styled(S,S.monarch)} is proclaimed — but the seals of government stay on your desk. The palace changes its portrait; the ministry does not change its address.`:`The old sovereign is laid to rest, and you open your eyes behind those of ${styled(S,S.monarch)}. ${S.regency?"A regency holds the seals until they come of age — hungry years for every faction with an appetite.":"The face has changed. The hand on the wheel has not."}`,fortune:null,next:"endturn2"};
   checkMilestones();S.phase="outcome";
   // special: continue into fresh turn after outcome
   S.result.next="fresh";
@@ -328,7 +329,7 @@ function doSuccAncestral(nm){
   if(wasTrained==="court")S.facs.clergy.mood=clamp(S.facs.clergy.mood+4);
   if(wasTrained==="army")S.facs.officers.mood=clamp(S.facs.officers.mood+4);
   S.chronicle.push({year:S.year,cls:"reign",text:`In ${S.year}, the crown passed to ${styled(S,S.monarch)} — born ${S.monarch.birthName}, crowned under an ancestral name, that the realm might feel the old thread unbroken.`});
-  S.result={out:S.pm?`${styled(S,S.monarch)} is proclaimed under a name the realm already loves — while the seals stay on your desk.`:`You open your eyes behind those of ${styled(S,S.monarch)} — a new sovereign wearing an old and steadying name.`,fortune:null,next:"fresh"};
+  S.result={out:pmGoverns(S)?`${styled(S,S.monarch)} is proclaimed under a name the realm already loves — while the seals stay on your desk.`:`You open your eyes behind those of ${styled(S,S.monarch)} — a new sovereign wearing an old and steadying name.`,fortune:null,next:"fresh"};
   checkMilestones();S.phase="outcome";render();
 }
 function doSuccSibling(pid){

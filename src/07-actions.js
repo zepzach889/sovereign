@@ -32,7 +32,7 @@ const ACTIONS=[
   { id:"trade",label:"Sponsor trade, guilds and roads",
     hint:"slow investment: raises the realm's wealth, lifting all future revenue",
     cost:{gold:-28},fac:{merchants:+8,provinces:+3},requires:S=>true,
-    effect:S=>{S.development=clamp(S.development+6);},
+    effect:S=>{raiseDevelopment(S,6);},
     chron:S=>`the Crown poured coin into roads, guilds and harbours; the wealth of ${S.nation} deepened.`,
     out:["New roads, chartered fairs, dredged harbours. Richer realms are richer to tax."]},
   { id:"suppress",label:"Suppress dissent with the garrison",
@@ -60,7 +60,7 @@ const ACTIONS=[
   { id:"assent",label:"Withhold assent",cool:3,
     hint:"the chamber has passed it; the crown declines to make it law",
     gain:"the bill dies — and so does a little of the crown's remaining credit",
-    cost:{stability:-5},requires:S=>hasPrerog(S,"assent")&&S.gov.institutions.length>0,
+    cost:{stability:-5},requires:S=>hasPrerog(S,"assent")&&chamberSitting(S),
     resolve:S=>{ const fx={}; (composition[S.gov.institutions[0].composition]||[]).forEach(k=>{fx[k]=-7;});
       return {cost:{stability:-5},fac:fx,
         effect:S2=>{ S2.legitPen=(S2.legitPen||0)+5; bumpPressure(S2,"constitutional",9);
@@ -72,7 +72,7 @@ const ACTIONS=[
   { id:"peers",label:"Create peers",cool:4,
     hint:"the upper house can always be made larger, and the new men will remember who made them",
     gain:"the upper chamber bends toward the crown",
-    cost:{gold:-24},requires:S=>hasPrerog(S,"peers")&&S.gov.institutions.some(i=>i.composition==="nobility"),
+    cost:{gold:-24},requires:S=>hasPrerog(S,"peers")&&S.gov.institutions.some(i=>i.composition==="nobility")&&eraIdx(S)>=2,
     resolve:S=>({cost:{gold:-24},fac:{aristocracy:-6,merchants:+4},
       effect:S2=>{ const up=S2.gov.institutions.find(i=>i.composition==="nobility");
         if(up&&up.power>0)transferPower(S2,S2.gov.crown,Math.min(6,up.power));
@@ -94,11 +94,11 @@ const ACTIONS=[
     resolve:S=>{ const c=consentCheck(S,"tax");
       const waited=(S._unsummoned||0);
       if(c.approve) return {cost:{gold:+30,stability:+3},fac:{aristocracy:+3,merchants:+3},
-        effect:S2=>{S2._unsummoned=0; if(S2.pBump)S2.pBump.constitutional=Math.max(0,(S2.pBump.constitutional||0)-10);},
+        effect:S2=>{S2._unsummoned=0; S2._sitting=true; if(S2.pBump)S2.pBump.constitutional=Math.max(0,(S2.pBump.constitutional||0)-10);},
         chron:S2=>`the Crown summoned the ${c.inst?c.inst.name:"chamber"}, heard its grievances, and was granted its subsidy.`,
         out:`They come, they complain at length, and they vote the money. ${waited>=3?"After that long a silence they complain rather more than usual, and the list is written down.":"This is the bargain the whole arrangement rests on: grievance first, supply second."}`};
       return {cost:{gold:+8,stability:-4},fac:{aristocracy:-3},
-        effect:S2=>{S2._unsummoned=0;bumpPressure(S2,"constitutional",6);},
+        effect:S2=>{S2._unsummoned=0;S2._sitting=true;bumpPressure(S2,"constitutional",6);},
         chron:S2=>`the Crown summoned the chamber and was refused its subsidy; the grievances were read out twice.`,
         out:"They come, and they will not vote it. The grievances are read into the record instead — which is how a chamber discovers it has a weapon."};
     }},
@@ -119,25 +119,25 @@ const ACTIONS=[
     gain:"a fresh election — and a chamber reminded who summoned it",
     cost:{gold:-10,stability:-6},
     requires:S=>S.gov.institutions.length>0
-      &&(isMonarchy(S)?hasPrerog(S,"dissolve"):S.gov.crown.power>=30)
+      &&(isMonarchy(S)?(hasPrerog(S,"dissolve")&&chamberSitting(S)):S.gov.crown.power>=30)
       &&(!!S.pm||(regimeIs(S,"republic")&&!!S.rep)||S.gov.institutions.some(i=>i.composition!=="nobility")),
     resolve:S=>{ const fx={}; (composition[S.gov.institutions[0].composition]||[]).forEach(k=>{fx[k]=-6;});
       S._dissolutions=(S._dissolutions||0)+1;
       if(S._dissolutions>=3){ return {cost:{gold:-10,stability:-16},fac:fx,
-        effect:S2=>{transferPower(S2,S2.gov.institutions[0],14);S2.legitPen=(S2.legitPen||0)+8;S2.nextElection=S2.turn;},
+        effect:S2=>{transferPower(S2,S2.gov.institutions[0],14);S2.legitPen=(S2.legitPen||0)+8;S2.nextElection=S2.turn;S2._sitting=false;S2._forceElection=true;},
         chron:S2=>`the Crown dissolved the chamber for the third time in living memory, and the realm decided it had seen enough of that.`,
         out:"You send them home again. This time the country does not go quietly — and when the new chamber sits, it sits with powers the Crown did not intend to give it. There is a limit, and you have found it."};}
-      return {cost:{gold:-10,stability:-6},fac:fx,effect:S2=>{S2.nextElection=S2.turn;},
+      return {cost:{gold:-10,stability:-6},fac:fx,effect:S2=>{S2.nextElection=S2.turn;S2._sitting=false;S2._forceElection=true;},
         chron:S2=>`the Crown dissolved the chamber and called the realm to an early poll.`,
         out:"The doors are locked, the mace carried out, the writs issued. The benches go home furious — and the country will now say what it thinks of you, whether you asked or not."};}},
   { id:"refuse_ministry",label:"Refuse the chamber's ministry",cool:4,
     hint:"the winning benches propose; the Crown declines, and appoints its own",
     gain:"a ministry of your choosing — governing without a majority",
-    cost:{stability:-8},requires:S=>!!S.pm&&hasPrerog(S,"ministry"),
+    cost:{stability:-8},requires:S=>!!S.pm&&hasPrerog(S,"ministry")&&!crownAppointsPm(S),
     resolve:S=>{ const blocs=Object.keys(S.facs).filter(k=>S.facs[k].present&&k!==S.pm.bloc);
       const nb=blocs.sort((a,b)=>S.facs[b].mood-S.facs[a].mood)[0]||S.pm.bloc;
       return {cost:{stability:-8},fac:{aristocracy:+4},
-        effect:S2=>{S2.pm.bloc=nb;S2.pm.holder=pmName();S2.pm.age=46+rand(14);S2.legitPen=(S2.legitPen||0)+9;S2._minority=true;
+        effect:S2=>{S2.legitPen=(S2.legitPen||0)+9;S2._minority=true;S2._pmFieldPending=true;
           S2._pmRefusals=(S2._pmRefusals||0)+1;
           if(S2._pmRefusals>=3){ spendPrerog(S2,"ministry");
             S2.chronicle.push({year:S2.year,cls:"mstone",text:`In ${S2.year}, the Crown had refused one ministry too many; the right was not abolished so much as quietly retired.`});
@@ -233,7 +233,7 @@ const ACTIONS=[
     cost:{gold:-18},requires:S=>!!S.pm,
     resolve:S=>{ const gv=S.facs[S.pm.bloc];
       if(gv.mood>=45){ const fx={}; fx[S.pm.bloc]=+4;
-        return {cost:{gold:-18,stability:+6},fac:fx,effect:S2=>{S2.development=clamp(S2.development+3);},
+        return {cost:{gold:-18,stability:+6},fac:fx,effect:S2=>{raiseDevelopment(S2,3);},
         chron:S2=>`the ${S2.pm.office}'s program passed the chamber, and the realm was governed by statute rather than whim.`,
         out:"Readings, divisions, assent. The program passes — the machinery of law doing what decree once did."}; }
       const fx={}; fx[S.pm.bloc]=-2;
@@ -250,7 +250,7 @@ const ACTIONS=[
   { id:"public_works",label:"Commission public works",requires:S=>!!S.pm,
     hint:"roads, bridges, waterworks — the ministry builds what kings only decreed",
     cost:{gold:-24},fac:{provinces:+4,peasantry:+3},
-    effect:S=>{S.development=clamp(S.development+7);},
+    effect:S=>{raiseDevelopment(S,7);},
     chron:S=>`the ministry raised works across ${S.nation} — bridges, roads, waterworks — and the country grew visibly richer.`,
     out:["Surveyors, then scaffolds, then traffic. Development rises where the ministry builds — and so does every future year's revenue."]},
   { id:"surplus",label:"Deliver a surplus budget",cool:3,requires:S=>(!!S.pm||!isMonarchy(S))&&netIncome(S)>0,
