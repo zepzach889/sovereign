@@ -118,7 +118,24 @@ function shouldCadet(S,p){
   }
   if(p.rel==="grandchild"){ return !(h&&p.parents&&p.parents.indexOf(h.id)>=0); }
   if(p.rel==="sibling")return p.age>=30&&!!p.spouseId;  /* married and settled */
-  return p.age>=25;
+  /* A niece is not a member of the sovereign's household at any age. She
+     belongs to her parents' line — and she belongs to it even when those
+     parents are dead, which is why orphans were piling up at court. */
+  return true;
+}
+/* the line a person belongs to, walking up through dead parents if need be */
+function inheritedBranch(S,p,depth){
+  if(!p||(depth||0)>4)return null;
+  if(p.branch)return p.branch;
+  const par=(p.parents||[]).map(id=>(S.family||[]).find(q=>q.id===id)).filter(Boolean);
+  for(const q of par){
+    if(q.branch)return q.branch;
+    const up=inheritedBranch(S,q,(depth||0)+1); if(up)return up;
+  }
+  /* a dead parent who never got a branch still names one */
+  const blood=par.find(q=>isBlood(S,q));
+  if(blood)return `${blood.name}'s line`;
+  return null;
 }
 /* of the blood, as against married into it */
 function isBlood(S,p){

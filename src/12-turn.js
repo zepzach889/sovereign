@@ -585,9 +585,9 @@ function renderMatch(){
   if(!p){toDynCourt();return "";}
   const cands=matchCandidates(S,p);
   return `<div class="eyebrow">A match for the house</div><div class="sit-title">Suits for ${esc(p.name)}</div>
-    <div class="sit-text">${esc(p.name)}, ${p.age}, is of age. Three suits are pressed — two by houses, one by nobody at all.</div>
+    <div class="sit-text">${esc(p.name)}, ${p.age}, is of age. ${["No suits are","One suit is","Two suits are","Three suits are","Four suits are","Five suits are"][cands.length]||`${cands.length} suits are`} pressed${cands.some(c=>c.kind==="love")?", one of them by nobody at all":""}.</div>
     <div class="choices">${cands.map((c,i)=>`<button class="choice ${c.kind==="love"?"dyn-love":"dyn-match"}" data-match="${i}">
-      <div class="cl"><span class="mk">${["I","II","III"][i]}</span><span class="lbl">${esc(c.name)}${c.house?` of House ${esc(c.house)}`:""} (${c.age})</span></div>
+      <div class="cl"><span class="mk">${ROMAN[i+1]||String(i+1)}</span><span class="lbl">${esc(c.name)}${c.house?` of House ${esc(c.house)}`:""} (${c.age})</span></div>
       <div class="ch">${esc(c.note)}</div>
       <div class="costs">${c.chips.map(([cl,t])=>`<span class="chip ${cl}">${esc(t)}</span>`).join("")}</div></button>`).join("")}
       <button class="choice" data-match="-1"><div class="cl"><span class="mk">›</span><span class="lbl">Let them wait</span></div>
@@ -833,10 +833,15 @@ function endTurn(){
     if(shouldCadet(S,p)){
       p.cadet=true;
       if(!p.branch){
-        /* a spouse joins the blood's branch rather than founding a rival one */
+        /* a spouse joins the blood's branch rather than founding a rival one,
+           and a child joins their parents' — living or not */
         const anchor=branchAnchor(S,p);
         if(anchor.id!==p.id&&anchor.branch) p.branch=anchor.branch;
-        else { p.branch=branchNameFor(S,p); if(anchor.id!==p.id)anchor.branch=p.branch; }
+        else {
+          const up=inheritedBranch(S,p);
+          if(up) p.branch=up;
+          else { p.branch=branchNameFor(S,p); if(anchor.id!==p.id)anchor.branch=p.branch; }
+        }
       }
     }
   });

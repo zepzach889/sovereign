@@ -83,24 +83,23 @@ function provincePanel(){
 }
 /* the six facts you look up while deciding anything */
 function stateBar(){
+  const cell=(label,value,cls)=>`<span class="sbi"><span class="sbl">${label}</span><span class="sbv ${cls||""}">${value}</span></span>`;
   const bits=[];
   if(isMonarchy(S)){
     const h=heirOf(S);
-    bits.push(`<span class="sbi"><b>${esc(styled(S,S.monarch))}</b>, ${S.monarch.age}</span>`);
-    bits.push(`<span class="sbi sbd">${esc(S.house)}</span>`);
-    bits.push(`<span class="sbi">heir: ${h?`${esc(h.name)}, ${h.age}`:`<span class="sbwarn">none</span>`}</span>`);
-    if(S.regency)bits.push(`<span class="sbi sbwarn">regency — ${esc(S.regency.name)}</span>`);
+    bits.push(cell("sovereign",`${esc(styled(S,S.monarch))}, ${S.monarch.age}`));
+    bits.push(cell("house",esc(S.house)));
+    bits.push(cell("heir",h?`${esc(h.name)}, ${h.age}`:"none",h?"":"sbwarn"));
   } else {
-    bits.push(`<span class="sbi"><b>${esc(S.monarch?S.monarch.name:regimeLabel(S))}</b></span>`);
-    bits.push(`<span class="sbi sbd">${esc(regimeLabel(S))}</span>`);
+    bits.push(cell(execWord?execWord(S):"head",esc(S.monarch?S.monarch.name:regimeLabel(S))));
+    bits.push(cell("regime",esc(regimeLabel(S))));
   }
-  const cp=S.gov.crown.power|0;
-  bits.push(`<span class="sbi">${esc(crownWord(S))} <b>${cp}</b><span class="sbd">/100</span></span>`);
-  if(S.pm)bits.push(`<span class="sbi sbd">${esc(S.pm.office)}: ${esc(S.pm.holder)}</span>`);
+  if(S.regency)bits.push(cell("regency",esc(S.regency.name),"sbwarn"));
+  bits.push(cell(esc(crownWord(S)),`${S.gov.crown.power|0}<span class="sbd">/100</span>`));
   const net=netIncome(S);
-  bits.push(`<span class="sbi">treasury <b class="${S.treasury<0?"sbwarn":""}">${S.treasury}</b> <span class="sbd">(${net>=0?"+":""}${net}/turn)</span></span>`);
-  bits.push(`<span class="sbi">legit <b>${Math.round(legitimacy(S))}</b></span>`);
-  bits.push(`<span class="sbi">stab <b class="${S.stability<30?"sbwarn":""}">${Math.round(S.stability)}</b></span>`);
+  bits.push(cell("treasury",`${S.treasury} <span class="sbd">${net>=0?"+":""}${net}/turn</span>`,S.treasury<0?"sbwarn":""));
+  bits.push(cell("legitimacy",Math.round(legitimacy(S)),legitimacy(S)<35?"sbwarn":""));
+  bits.push(cell("stability",Math.round(S.stability),S.stability<30?"sbwarn":""));
   return `<div class="statebar">${bits.join("")}</div>`;
 }
 function familyPanel(){
