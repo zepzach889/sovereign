@@ -469,6 +469,116 @@ console.log("\n— targeted screens —");
   }
 }
 
+/* ---- the offices of state: per-office fields, competence, effects ---- */
+{
+  S = freshGame();
+  let st = B.S;
+  st.gov.cabinet = "Privy Council";
+  sandbox.roleName(st, sandbox.roleById("marshal"));
+  ok(sandbox.roleById("seals"), "offices: the fifth post is missing");
+
+  /* each office draws its own field, not one shared pool */
+  const fm = sandbox.officeField(st, "marshal");
+  const fc = sandbox.officeField(st, "chancellor");
+  ok(fm.length > 0 && fc.length > 0, "offices: an office was offered no candidates at all");
+  const idsM = fm.filter(c => !c.royal).map(c => c.id).join(",");
+  const idsC = fc.filter(c => !c.royal).map(c => c.id).join(",");
+  ok(idsM !== idsC, "offices: two different posts drew the identical field");
+  ok(fm.every(c => c.skill != null), "offices: a candidate arrived without a competence");
+
+  /* the field is stable within a turn, so the screen does not reshuffle */
+  ok(sandbox.officeField(st, "marshal").map(c=>c.id).join(",") === fm.map(c=>c.id).join(","),
+     "offices: the field reshuffled on a second look within the same turn");
+
+  /* names change with the regime; the post does not */
+  const marshal = sandbox.roleById("marshal");
+  const crownName = sandbox.roleName(st, marshal);
+  install("people");
+  ok(sandbox.roleName(B.S, marshal) !== crownName,
+     "offices: a people's republic still called it by the crown's name");
+  ok(sandbox.ROLES_LEN === undefined || true, "");
+
+  /* a good officer helps and a bad one hurts, every turn they serve */
+  S = freshGame(); st = B.S;
+  st.gov.cabinet = "Privy Council";
+  st.court = [{ id: 90001, name: "Able", age: 45, alive: true, job: "chancellor",
+                bloc: "merchants", label: "a man of business", skill: 90 }];
+  let t0 = st.treasury; sandbox.officeUpkeep(st);
+  ok(st.treasury > t0, "offices: a capable Chancellor did nothing for the treasury");
+  st.court[0].skill = 10;
+  t0 = st.treasury; sandbox.officeUpkeep(st);
+  ok(st.treasury < t0, "offices: an incompetent Chancellor cost nothing");
+
+  /* and bends the price of work in their own department only */
+  st.court[0].skill = 90;
+  ok(sandbox.officeCostMod(st, "trade") < 1, "offices: a good Chancellor did not cheapen fiscal work");
+  ok(sandbox.officeCostMod(st, "levy") === 1, "offices: the Chancellor cheapened the army too");
+  st.court[0].skill = 10;
+  ok(sandbox.officeCostMod(st, "trade") > 1, "offices: a bad Chancellor did not raise fiscal costs");
+}
+
+/* ---- fertility: a five-year turn can hold more than one child ---- */
+{
+  let most = 0, runs = 0;
+  for (let seed = 0; seed < 40; seed++) {
+    S = freshGame(); const st = B.S;
+    const sp = sandbox.makePerson(st, "spouse", st.monarch.gender === "m" ? "f" : "m", 24);
+    sp.spouseId = st.monarch.id; st.monarch.spouseId = sp.id; st.family.push(sp);
+    st.monarch.age = 26;
+    const before = st.family.filter(p => p.rel === "child").length;
+    sandbox.maybeBirth(5);
+    const born = st.family.filter(p => p.rel === "child").length - before;
+    most = Math.max(most, born); runs += born;
+  }
+  ok(most >= 2, `fertility: across 40 turns the most children born in one turn was ${most}, want at least 2`);
+  ok(runs / 40 > 0.6, `fertility: mean births per fertile turn is ${(runs/40).toFixed(2)}, which is too barren`);
+}
+
+/* ---- women reach the offices of state only with the mass franchise ---- */
+{
+  S = freshGame(); const st = B.S;
+  let anyEarly = false;
+  st.eraIdx = 4;
+  for (let i = 0; i < 300; i++) if (sandbox.officeGender(st) === "f") anyEarly = true;
+  ok(!anyEarly, "gender gate: a woman held office before the mass franchise");
+  st.eraIdx = 8;
+  let anyLate = false;
+  for (let i = 0; i < 300; i++) if (sandbox.officeGender(st) === "f") anyLate = true;
+  ok(anyLate, "gender gate: no woman ever reaches office even in the modern era");
+}
+
+/* ---- an abdicating sovereign is not a dead one ---- */
+{
+  S = freshGame(); const st = B.S;
+  const wasId = st.monarch.id, wasName = st.monarch.name;
+  st._abdicated = true;
+  st.family.push(sandbox.makePerson(st, "child", "m", 30, null, [st.monarch.id, 999999]));
+  try { sandbox.crownPerson(st, st.family.find(p => p.rel === "child")); }
+  catch (e) { fail(`abdication: crownPerson threw: ${e.message}`); }
+  const ex = B.S.family.find(p => p.id === wasId);
+  ok(!!ex, `abdication: ${wasName} vanished from the world instead of retiring`);
+  ok(ex && ex.alive !== false, "abdication: the ex-sovereign was quietly killed off");
+}
+
+/* ---- marriage offers vary in number and in what they are for ---- */
+{
+  const counts = new Set(); const kinds = new Set();
+  for (let i = 0; i < 60; i++) {
+    S = freshGame(); const st = B.S;
+    st.treasury = (i % 2) ? 5 : 200;
+    if (i % 3 === 0) st.rival = { id: 1234, name: "A Claimant" };
+    st._matchC = null;
+    const list = sandbox.matchCandidates(st, st.monarch);
+    counts.add(list.length);
+    list.forEach(c => { if (c.dowry) kinds.add("dowry"); if (c.heal) kinds.add("heal");
+                        if (c.placate) kinds.add("placate"); if (c.arms) kinds.add("arms"); });
+    ok(list.length >= 1, "marriage: a sovereign was offered no match at all");
+    ok(list.length <= 3, `marriage: ${list.length} offers, want at most 3`);
+  }
+  ok(counts.size > 1, "marriage: the number of offers never varied");
+  ok(kinds.size > 1, `marriage: terms never varied with the realm (saw: ${[...kinds].join(", ") || "none"})`);
+}
+
 /* ---- an office of state given to someone who is not family ---- */
 {
   S = freshGame();
