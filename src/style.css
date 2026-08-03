@@ -314,3 +314,14 @@
   font:inherit;font-size:10.5px;padding:1px 6px;border-radius:3px;cursor:pointer}
 .cadbtn:hover{color:var(--ink)}
 .cadbtn.on{border-color:var(--brass);color:var(--brass)}
+
+/* The government and the royal family stay put. They are the state of the
+   realm, and you should not have to scroll away from them to read a choice. */
+.pinned{position:sticky;top:0;z-index:5;background:var(--bg);
+  padding-top:2px;margin-bottom:2px;
+  box-shadow:0 10px 18px -10px rgba(0,0,0,.65)}
+@media (max-height:760px){ .pinned{position:static;box-shadow:none} }
+.cadtog{background:transparent;border:1px solid var(--line);color:var(--dim);
+  font:inherit;font-size:10px;padding:0 5px;margin-left:6px;border-radius:3px;cursor:pointer}
+.cadtog:hover{color:var(--brass);border-color:var(--brass)}
+.person.cadet .pr{color:var(--brass-dim);font-style:italic}

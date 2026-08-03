@@ -95,7 +95,17 @@ function familyPanel(){
       return sp?`<span class="wed">⚭ ${esc(sp.name)}${sp.alive===false?" †":""}</span>`:"";})()}${p.abdicated?`<span class="office">laid down the crown</span>`:""}${h&&h.id===p.id?`<span class="heirmark">— heir</span>`:""}${S.rival&&S.rival.id===p.id?`<span class="rival">— rival claimant</span>`:""}${p.exiled?`<span class="rival" style="color:var(--dim)">— exiled</span>`:""}</div>`); });
   if(!rows.length) rows.push(`<div class="person"><span class="pr">—</span><span style="color:var(--dim);font-style:italic">no living kin of note</span></div>`);
   const cadets=branchKin(S);
-  if(cadets.length)rows.push(`<div class="person"><span class="pr">cadet lines</span><span style="color:var(--dim)">${cadets.length} of the blood in ${new Set(cadets.map(c=>c.branch||"a branch")).size} branches — kin, claimants if the line fails, and no charge upon the treasury</span></div>`);
+  if(cadets.length){
+    const open=!!(S.ui&&S.ui.cadetsOpen);
+    const branches={};
+    cadets.forEach(c=>{ const b=c.branch||"a branch"; (branches[b]=branches[b]||[]).push(c); });
+    rows.push(`<div class="person"><span class="pr">cadet lines</span><span style="color:var(--dim)">${cadets.length} of the blood in ${Object.keys(branches).length} branches — kin, claimants if the line fails, and no charge upon the treasury <button class="cadtog" id="cadTog">${open?"hide ▴":"show ▾"}</button></span></div>`);
+    if(open){
+      Object.keys(branches).sort().forEach(b=>{
+        rows.push(`<div class="person cadet"><span class="pr">${esc(b)}</span><span style="color:var(--dim)">${branches[b].sort((x,y)=>y.age-x.age).map(c=>`${esc(c.name)}, ${c.age}${c.spouseId?" ⚭":""}`).join(" · ")}</span></div>`);
+      });
+    }
+  }
   return `<div class="family"><div class="gt"><span>The Royal Family</span><span class="lawpill">${LAWS[S.law].name} succession${spouseOf(S)?" · wed":""}</span></div>${rows.join("")}</div>`;
 }
 
@@ -137,7 +147,6 @@ function render(){
   else if(S.phase==="pmpick")main=renderPmPick();
   else if(S.phase==="pmoffer")main=renderPmOffer();
   else if(S.phase==="seatshift")main=renderSeatShift();
-  else if(S.phase==="heirage")main=renderHeirAge();
   else if(S.phase==="chname")main=renderChName();
   else if(S.phase==="court")main=renderCourt();
   else if(S.phase==="dynastic")main=renderDynastic()+(S.dyn?dynSkipBtn():"");
@@ -188,9 +197,11 @@ function render(){
       ${provincePanel()}
     </aside>
     <section class="console">
-      ${phaseStrip()}
-      ${govHtml}
-      ${familyPanel()}
+      <div class="pinned">
+        ${phaseStrip()}
+        ${govHtml}
+        ${familyPanel()}
+      </div>
       <div class="mainpanel">${main}</div>
     </section>
   </div>
@@ -442,17 +453,7 @@ function renderDynastic(){
           <div class="ch">perhaps it is nothing. perhaps.</div><div class="costs"><span class="chip down">they may declare as a rival claimant</span></div></button>
       </div>`;
   }
-  if(d.kind==="ofage"){
-    const heir=d.heir;
-    return `<div class="eyebrow">Dynastic phase</div><div class="sit-title">${esc(heir.name)} Comes of Age</div>
-      <div class="sit-text">The heir to the crown is ${heir.age}, and the court takes notice: how shall the heir be prepared?</div>
-      <div class="choices">
-        <button class="choice" data-dyn="heir_court"><div class="cl"><span class="mk">I</span><span class="lbl">Train them at court, in law and statecraft</span></div>
-          <div class="costs"><span class="chip up">Legitimacy ▲ at succession</span><span class="chip fac up">Clergy ▲</span></div></button>
-        <button class="choice" data-dyn="heir_army"><div class="cl"><span class="mk">II</span><span class="lbl">Give them a command on the frontier</span></div>
-          <div class="costs"><span class="chip up">+4 Arms</span><span class="chip fac up">Officers ▲</span><span class="chip down">a soldier's risks</span></div></button>
-      </div>`;
-  }
+  if(d.kind==="ofage") return renderHeirAge();
   if(d.kind==="banners"){
     const rv=d.rival;
     return `<div class="eyebrow">Dynastic phase — the claim turns to steel</div><div class="sit-title">${esc(rv.name)} Raises the Banners</div>
@@ -688,8 +689,9 @@ function renderPmOffer(){
     </div>`;
 }
 function renderHeirAge(){
-  const h=S.family.find(p=>p.id===S._heirAge&&p.alive);
-  if(!h){ S._heirAge=null; toDynCourt(); return ""; }
+  const d=S.dyn;
+  const h=(d&&d.kind==="ofage"&&d.heir)?S.family.find(p=>p.id===d.heir.id&&p.alive):null;
+  if(!h){ S.dyn=null; S.phase="dyncourt"; return `<div class="sit-text">The court moves on.</div><button class="cont" id="dynSkip">Continue →</button>`; }
   const direct=heirIsDirect(S,h);
   const opt=(k,mk,lbl,ch,chips)=>`<button class="choice dyn-desig" data-heirage="${k}">
     <div class="cl"><span class="mk">${mk}</span><span class="lbl">${lbl}</span></div>

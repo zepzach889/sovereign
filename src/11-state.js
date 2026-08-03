@@ -23,8 +23,11 @@ const TRAIT_KEYS=Object.keys(TRAITS);
 function rollTrait(){ return chance(0.72)?pick(TRAIT_KEYS):null; }
 function traitShown(p){
   if(!p||!p.trait)return null;
-  if(p.age>=16)return {sure:true,text:TRAITS[p.trait].name};
-  if(p.age>=8)return {sure:false,text:TRAITS[p.trait].hint};
+  /* an unknown key must not bring down every render in the game — which is
+     exactly what it did when one crept in from a coming-of-age outcome */
+  const t=TRAITS[p.trait]; if(!t)return null;
+  if(p.age>=16)return {sure:true,text:t.name};
+  if(p.age>=8)return {sure:false,text:t.hint};
   return null;
 }
 function traitMortality(p,base){ return p&&p.trait==="frail"?base*1.85:base; }

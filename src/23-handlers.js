@@ -83,6 +83,8 @@ function wire(){
   document.querySelectorAll("[data-pmoffer]").forEach(b=>b.onclick=()=>{b.dataset.pmoffer==="accept"?doPmAccept():doPmRefuse();});
   const sg=document.getElementById("seatGo");if(sg)sg.onclick=()=>doSeatShift();
   document.querySelectorAll("[data-heirage]").forEach(b=>b.onclick=()=>doHeirAge(b.dataset.heirage));
+  const ct=document.getElementById("cadTog");
+  if(ct)ct.onclick=()=>{S.ui=S.ui||{};S.ui.cadetsOpen=!S.ui.cadetsOpen;render();};
   document.querySelectorAll("[data-elecevery]").forEach(b=>b.onclick=()=>{
     const n=+b.dataset.elecevery; const was=electionEvery(S);
     S.electionEvery=n;
@@ -227,10 +229,6 @@ function doDyn(kind){
     if(chance(0.45)){S.rival=sib;applyOutcome({chron:S=>`the court watched a royal sibling's ambition and did nothing; ${sib.name} declared themself a claimant to the crown.`,
       out:`${sib.name} stops pretending. Letters patent, a badge, a retinue — a rival claimant in all but open war.`,fortune:"bad"},"endturn");}
     else applyOutcome({chron:null,out:"You watch, and wait, and the gathering... disperses. Perhaps it truly was nothing. You will never be sure."},"endturn");}
-  else if(kind==="heir_court"){S._heirTrained="court";applyOutcome({fac:{clergy:+3},chron:S=>`the heir was schooled at court in law and statecraft, against the day the crown should pass.`,
-    out:"Tutors, law-books, long hours at the council door. When the day comes, the realm will meet a prepared sovereign."},"endturn");}
-  else if(kind==="heir_army"){S._heirTrained="army";applyOutcome({cost:{arms:+4},fac:{officers:+4},chron:S=>`the heir took a command on the frontier, learning the trade of soldiers.`,
-    out:"A frontier command, real dangers, real respect. The army learns to love its future sovereign."},"endturn");}
   else if(kind==="banners_fight"){const rv=S.dyn.rival;
     if(S.military>=45&&S.facs.officers.mood>=45){
       rv.exiled=true; if(S.rival&&S.rival.id===rv.id)S.rival=null;

@@ -242,16 +242,14 @@ function heirIsDirect(S,h){
   return !!(h&&h.parents&&h.parents.indexOf(S.monarch.id)>=0);
 }
 function doHeirAge(kind){
-  /* a stale button from a previous render must not apply the beat twice —
-     the chaos runner found exactly that, clicking it from the outcome
-     screen and overwriting a result that was still pending */
-  if(S.phase!=="heirage")return;
-  const h=S.family.find(p=>p.id===S._heirAge&&p.alive); S._heirAge=null;
-  if(!h){ toDynCourt(); return; }
+  /* a stale button from a previous render must not apply the beat twice */
+  if(S.phase!=="dynastic"||!S.dyn||S.dyn.kind!=="ofage")return;
+  const h=S.dyn.heir&&S.family.find(p=>p.id===S.dyn.heir.id&&p.alive);
+  if(!h){ S.dyn=null; toDynCourt(); return; }
   const direct=heirIsDirect(S,h);
   let out;
   if(kind==="statecraft") out={cost:{stability:+3},fac:{aristocracy:+3,reformers:+2},
-    effect:S2=>{ h.trait=h.trait||"able"; S2.legitPen=Math.max(0,(S2.legitPen||0)-4); },
+    effect:S2=>{ if(!h.trait)h.trait="shrewd"; S2.legitPen=Math.max(0,(S2.legitPen||0)-4); },
     chron:S2=>`${h.name}, the heir, was given over to the lawyers and the clerks, and learned the realm as a thing that is administered.`,
     out:`Statutes, revenues, the assize and the long grey business of governing. It is not a glamorous education and it produces sovereigns who are hard to lie to.`};
   else if(kind==="command") out={cost:{stability:+2,arms:+4},fac:{officers:+9,aristocracy:+2},
@@ -275,13 +273,7 @@ function doHeirAge(kind){
     out:`Nothing is spent and nothing is decided. They will arrive at the throne as a stranger to the army, the provinces and the court — which has worked before, and has also gone very badly.`};
   applyOutcome(out,"dyncourt"); render();
 }
-function toDynCourt(){
-  /* only enter the beat if the heir is actually there to be decided about */
-  if(S._heirAge&&isMonarchy(S)){
-    const hp=S.family.find(p=>p.id===S._heirAge&&p.alive);
-    if(hp){ S.phase="heirage"; render(); return; }
-    S._heirAge=null;
-  } S.dyn=null; S.result=null; S.phase="dyncourt"; render(); }
+function toDynCourt(){ S.dyn=null; S.result=null; S.phase="dyncourt"; render(); }
 
 /* =====================================================================
    THE OFFICES OF STATE
@@ -337,7 +329,8 @@ function rollLoyalty(S,cand){
   if(cand.royal)v+=32;                                 /* blood is blood */
   if(cand.kind==="noble")v+=6;
   if(cand.kind==="lawyer"||cand.kind==="merchant")v-=10; /* men with careers */
-  if(cand.trait==="loyal")v+=14; if(cand.trait==="ambitious")v-=16;
+  if(cand.trait==="pious")v+=10; if(cand.trait==="beloved")v+=6;
+  if(cand.trait==="cruel")v-=12; if(cand.trait==="shrewd")v-=8;
   if(!isMonarchy(S))v-=6;
   return Math.max(2,Math.min(98,v));
 }
@@ -355,7 +348,10 @@ function rollSkill(S,cand,dom){
   let v=20+rand(45);
   if(cand.kind&&KIND_DOM[cand.kind]===dom)v+=22;      /* trained to it */
   if(cand.royal)v-=8;                                  /* raised to be royal, not useful */
-  if(cand.trait==="able")v+=14; if(cand.trait==="idle")v-=14;
+  if(cand.trait==="shrewd")v+=14; if(cand.trait==="curious")v+=8;
+  if(cand.trait==="frail")v-=10;
+  if(dom==="martial"&&cand.trait==="martial")v+=12;
+  if(dom==="faith"&&cand.trait==="pious")v+=12;
   if(eraIdx(S)>=5)v+=6;                                /* an examined civil service */
   return Math.max(2,Math.min(98,v));
 }
@@ -697,13 +693,6 @@ function endTurn(){
   S.year+=span; S.turn++;
   // ages
   S.monarch.age+=span; S.family.forEach(p=>{ if(p.alive)p.age+=span; });
-  /* an heir crossing into adulthood is a decision, not a birthday */
-  (function(){
-    const h=heirOf(S); if(!h||!h.alive||h.comeOfAge)return;
-    if(h.age<16||h.age>26)return;
-    if(S.regency||!isMonarchy(S))return;
-    h.comeOfAge=true; S._heirAge=h.id;
-  })();
   if(S.regency){ S.regency.age+=span;
     const rp=S.regency.personId?S.family.find(p=>p.id===S.regency.personId):null;
     if(S.regency.personId&&(!rp||!rp.alive)){
