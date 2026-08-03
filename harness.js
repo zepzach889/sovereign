@@ -140,6 +140,7 @@ for (const m of manifest) {
 }
 console.log(`loaded ${manifest.length} modules`);
 vm.runInContext("globalThis.__cultures=CULTURES; globalThis.__titleForms=TITLE_FORMS;", sandbox);
+vm.runInContext("globalThis.__prerogatives=PREROGATIVES;", sandbox);
 
 /* Top-level `let` lives in the shared script scope, not on globalThis —
    exactly as it does across <script> tags in the browser. Bridge to it. */
@@ -227,6 +228,109 @@ if (typeof sandbox.applyTransition === "function") {
 ===================================================================== */
 console.log("\n— targeted screens —");
 
+/* =====================================================================
+   THE CONSTITUTIONAL FRAME
+   The prerogative ladder, the three ministry bands, where the player is
+   sitting, and the long-reign toggle. All new in this patch-set, so all
+   of it is guessed-at until something checks.
+===================================================================== */
+{
+  const G = sandbox;
+  /* ---- the ladder rises and falls with the crown's share ---- */
+  S = freshGame();
+  let st = B.S;
+  st.gov.crown.power = 100;
+  for (const p of sandbox.__prerogatives)
+    ok(G.hasPrerog(st, p.id), `ladder: ${p.id} should be held at power 100`);
+
+  st.gov.crown.power = 45;
+  for (const id of ["dissolve", "ministry", "council"])
+    ok(!G.hasPrerog(st, id), `ladder: ${id} should have lapsed at power 45`);
+  for (const id of ["assent", "emergency", "peers", "pardon", "ceremony"])
+    ok(G.hasPrerog(st, id), `ladder: ${id} should still be held at power 45`);
+
+  st.gov.crown.power = 12;
+  ok(!G.hasPrerog(st, "pardon"), "ladder: pardon should lapse below 15");
+  ok(G.hasPrerog(st, "ceremony"), "ladder: ceremony is never lost");
+
+  /* ---- a spent right stays spent, however the power moves ---- */
+  G.spendPrerog(st, "ministry");
+  st.gov.crown.power = 100;
+  ok(!G.hasPrerog(st, "ministry"), "ladder: a spent prerogative must not come back at full power");
+  ok(G.prerogState(st, "ministry") === "spent", "ladder: spent state should read as spent");
+  ok(G.hasPrerog(st, "dissolve"), "ladder: spending one right must not spend its neighbours");
+
+  /* ---- no crown, no prerogative ---- */
+  S = freshGame(); install("republic");
+  ok(!G.hasPrerog(B.S, "ceremony"), "ladder: a republic holds no royal prerogative");
+
+  /* ---- the three ministry bands ---- */
+  S = freshGame(); st = B.S;
+  st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Test", age: 50 };
+  st.gov.crown.power = 80;
+  ok(G.crownAppointsPm(st), "bands: at 80 the crown should appoint");
+  ok(!G.pmContested(st) && !G.pmGoverns(st), "bands: 80 is not contested and not ministerial");
+  ok(G.seatNow(st) === "crown", "bands: the player sits at the throne at 80");
+
+  st.gov.crown.power = 60;
+  ok(G.pmContested(st), "bands: 60 should be the contested band");
+  ok(!G.crownAppointsPm(st) && !G.pmGoverns(st), "bands: 60 is neither gift nor responsible government");
+  ok(G.seatNow(st) === "crown", "bands: the player still sits at the throne at 60");
+
+  st.gov.crown.power = 40;
+  ok(G.pmGoverns(st), "bands: below 50 the ministry governs");
+  ok(G.seatNow(st) === "ministry", "bands: the player follows the power to the desk");
+
+  /* ---- the seat shift is raised exactly once per crossing ---- */
+  S = freshGame(); st = B.S;
+  st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Test", age: 50 };
+  st._seat = "crown"; st._seatShift = null;
+  st.gov.crown.power = 40;
+  G.maybeTransform(st);
+  ok(st._seatShift === "ministry", "seat: crossing below 50 must raise the shift");
+  st._seat = "ministry"; st._seatShift = null;
+  G.maybeTransform(st);
+  ok(!st._seatShift, "seat: no shift raised once the seat already matches");
+  st.gov.crown.power = 70;
+  G.maybeTransform(st);
+  ok(st._seatShift === "crown", "seat: clawing back above 50 must raise the shift the other way");
+
+  /* ---- the ministry is born with the first chamber, not with defeat ---- */
+  S = freshGame(); st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 0, rights: ["tax"] });
+  st.pm = null; st._pmPending = false;
+  G.maybeTransform(st);
+  ok(st._pmPending, "ministry: seating a chamber at full crown power must still call for a ministry");
+
+  /* ---- summons above 70 with one chamber; a cycle otherwise ---- */
+  ok(G.electionMode(st) === "none", "cadence: no ministry means no elections at all");
+  st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Test", age: 50 };
+  st.gov.crown.power = 85;
+  ok(G.electionMode(st) === "summons", "cadence: one chamber and personal rule means summons");
+  st.gov.institutions.push({ id: "commons", name: "Commons", composition: "commons", power: 0, rights: ["petition"] });
+  ok(G.electionMode(st) === "cycle", "cadence: a second chamber forces a cycle even at 85");
+  st.gov.institutions.pop();
+  st.gov.crown.power = 55;
+  ok(G.electionMode(st) === "cycle", "cadence: falling out of personal rule forces a cycle");
+
+  /* ---- the cadence is clamped to the offered range ---- */
+  st.electionEvery = 99; ok(G.electionEvery(st) === 3, "cadence: must clamp to 3 turns");
+  st.electionEvery = 0;  ok(G.electionEvery(st) === 1, "cadence: must clamp to 1 turn");
+  st.electionEvery = 2;  ok(G.electionYears(st) === 10, "cadence: 2 turns should read as 10 years");
+
+  /* ---- the long reign really does hold the roof up ---- */
+  S = freshGame(); st = B.S;
+  st.devQuiet = true;
+  ["military", "radical", "constitutional", "restorationist"].forEach(id => {
+    st.pressure[id] = 95; st.pBump = st.pBump || {}; st.pBump[id] = 45;
+  });
+  st.stability = 1; st.legitPen = 60; st.treasury = -300;
+  ok(G.transitionReady(st) === null, "long reign: no rupture may be ready however bad it gets");
+  ok(G.pressureNow(st, "military") <= 44, "long reign: pressure readings must stay damped");
+  st.devQuiet = false;
+  ok(G.pressureNow(st, "military") > 44, "long reign: turning it off must restore the real reading");
+}
+
 /* ---- every culture pack is complete and every regime can be styled ---- */
 {
   const CU = sandbox.__cultures, TF = sandbox.__titleForms;
@@ -272,6 +376,97 @@ console.log("\n— targeted screens —");
      `custom title ignored (got "${B.S.gov.crown.titleBase}")`);
   ok(sandbox.styled(B.S, B.S.monarch).startsWith("The Helmsman"), "custom title not used in styling");
   ok(!/\s(I|II|III)\b/.test(sandbox.styled(B.S, B.S.monarch)), "a president was given a regnal numeral");
+}
+
+/* ---- the crown's gift: appointing against the chamber ---- */
+{
+  S = freshGame();
+  let st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 10, rights: ["tax"] });
+  st.gov.institutions.push({ id: "commons", name: "Commons", composition: "commons", power: 10, rights: ["petition"] });
+  st.gov.crown.power = 80;
+  st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Sitting", age: 50 };
+  st._pmOffice = "Prime Minister";
+  st._pmField = sandbox.pmField(st, "merchants");
+  st.phase = "pmpick";
+  try { sandbox.render(); } catch (e) { fail(`pmpick: render threw: ${e.message}`); }
+  const picks = document.querySelectorAll("[data-pmpick]");
+  ok(picks.length > 0, "pmpick: no ministry candidates offered");
+  ok(st._pmField.some(c => c.winner), "pmpick: the chamber's own winner must be on the list");
+  const loser = picks.find(b => !st._pmField[+b.attrs["data-pmpick"]].winner);
+  ok(!!loser, "pmpick: the crown was offered no alternative to the winner");
+  if (loser) {
+    const stabBefore = st.stability, idx = +loser.attrs["data-pmpick"];
+    const wantBloc = st._pmField[idx].bloc;
+    try { loser.onclick(); } catch (e) { fail(`pmpick: appointing threw: ${e.message}`); }
+    ok(B.S.pm.bloc === wantBloc, "pmpick: the crown's choice did not take office");
+    ok(B.S.stability < stabBefore, "pmpick: appointing against the chamber cost nothing");
+    invariants(B.S, "after pmpick");
+  }
+}
+
+/* ---- the contested band: refusing a ministry, and being answered ---- */
+{
+  S = freshGame();
+  let st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 40, rights: ["tax"] });
+  st.gov.crown.power = 60;
+  st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Sitting", age: 50 };
+  st._pmOffer = { bloc: "merchants", holder: "Offered", age: 50 };
+  st.phase = "pmoffer";
+  try { sandbox.render(); } catch (e) { fail(`pmoffer: render threw: ${e.message}`); }
+  const offers = document.querySelectorAll("[data-pmoffer]");
+  ok(offers.length === 2, `pmoffer: want accept and refuse, got ${offers.length}`);
+  const acc = offers.find(b => b.attrs["data-pmoffer"] === "accept");
+  if (acc) {
+    try { acc.onclick(); } catch (e) { fail(`pmoffer: accepting threw: ${e.message}`); }
+    ok(B.S.pm.bloc === "merchants", "pmoffer: accepting did not seat the chamber's man");
+    invariants(B.S, "after pmoffer accept");
+  }
+
+  /* refuse until the country answers, and check the right is spent */
+  S = freshGame(); st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 20, rights: ["tax"] });
+  st.gov.institutions.push({ id: "commons", name: "Commons", composition: "commons", power: 20, rights: ["petition"] });
+  st.gov.crown.power = 60;
+  st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Sitting", age: 50 };
+  let spent = false;
+  for (let i = 0; i < 30 && !spent; i++) {
+    st = B.S;
+    st.gov.crown.power = 60;
+    st._pmOffer = { bloc: "merchants", holder: "Offered", age: 50 };
+    st.phase = "pmoffer";
+    try { sandbox.doPmRefuse(); } catch (e) { fail(`pmoffer: refusing threw: ${e.message}`); break; }
+    invariants(B.S, `after refusal ${i + 1}`);
+    spent = sandbox.prerogSpent(B.S, "ministry");
+  }
+  ok(spent, "pmoffer: refusing repeatedly never spent the prerogative");
+  ok((B.S._pmRefusals || 0) <= 3, `pmoffer: took ${B.S._pmRefusals} refusals to spend the right, want at most 3`);
+  B.S.gov.crown.power = 100;
+  ok(!sandbox.hasPrerog(B.S, "ministry"), "pmoffer: a spent right came back with the power");
+  ok(B.S.phase !== "pmoffer" || !B.S._pmOffer, "pmoffer: an offer was left dangling after resolution");
+}
+
+/* ---- the seat crossing the room, in both directions ---- */
+{
+  S = freshGame();
+  let st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 60, rights: ["tax"] });
+  st.gov.crown.power = 40;
+  st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Sitting", age: 50 };
+  st._seat = "crown";
+  sandbox.maybeTransform(st);
+  ok(st._seatShift === "ministry", "seatshift: the crossing was not raised");
+  st.phase = "seatshift";
+  try { sandbox.render(); } catch (e) { fail(`seatshift: render threw: ${e.message}`); }
+  const go = document.getElementById("seatGo");
+  ok(!!go, "seatshift: no continue button on the handover screen");
+  if (go) {
+    try { go.onclick(); } catch (e) { fail(`seatshift: continuing threw: ${e.message}`); }
+    ok(B.S._seat === "ministry", "seatshift: the seat did not move");
+    ok(!B.S._seatShift, "seatshift: the flag was not cleared, so it will fire forever");
+    invariants(B.S, "after seatshift");
+  }
 }
 
 /* ---- an office of state given to someone who is not family ---- */
@@ -435,8 +630,8 @@ for (const branch of ["moderate", "terror"]) {
 const ALL_PHASES = [
   "advance","chname","civilpick","congress","convention","court","designate",
   "dynastic","dyncourt","election","ended","event","housefate","juntaexit",
-  "match","naming","outcome","pmname","quiet","regentpick","repvote",
-  "rolepick","succession","terror","tidings","transition",
+  "match","naming","outcome","pmname","pmpick","pmoffer","quiet","regentpick",
+  "repvote","rolepick","seatshift","succession","terror","tidings","transition",
 ];
 
 const seenEverywhere = new Set();
@@ -515,6 +710,15 @@ runChaos("junta",    PASS, () => install("junta"), 0);
 runChaos("republic", PASS, () => install("republic"), 0);
 runChaos("people",   PASS, () => install("people"), 0);
 runChaos("churn",    PASS, null, 120);
+/* the long reign: the mode Zach will actually sit down with. No government
+   may fall in it, so the pass asserts the regime is still a monarchy at the
+   end however hard the monkey leans on it. */
+runChaos("longreign", PASS, () => { B.S.devQuiet = true; }, 0);
+{
+  const lr = passReports[passReports.length - 1];
+  ok(lr && lr.regime === "monarchy",
+     `long reign: the realm ended as ${lr && lr.regime}, but nothing may rupture with the toggle on`);
+}
 
 /* ---------- coverage: which screens did the monkey never open? ---------- */
 const never = ALL_PHASES.filter(p => !seenEverywhere.has(p));
