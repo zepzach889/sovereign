@@ -143,6 +143,7 @@ vm.runInContext("globalThis.__cultures=CULTURES; globalThis.__titleForms=TITLE_F
 vm.runInContext("globalThis.__prerogatives=PREROGATIVES;", sandbox);
 vm.runInContext("globalThis.TRAIT_KEYS=TRAIT_KEYS;", sandbox);
 vm.runInContext("globalThis.__roman=ROMAN;", sandbox);
+vm.runInContext("globalThis.__reforms=REFORMS; globalThis.__composition=composition; globalThis.__bills=BILLS;", sandbox);
 
 /* Top-level `let` lives in the shared script scope, not on globalThis —
    exactly as it does across <script> tags in the browser. Bridge to it. */
@@ -565,6 +566,159 @@ console.log("\n— targeted screens —");
   try { sandbox.doHeirAge("progress"); } catch (e) { fail(`heirage: stale click threw: ${e.message}`); }
   ok(B.S.stability === t0 && B.S.phase === "dyncourt",
      "heirage: a stale click from another phase still applied the beat");
+
+  /* a granddaughter in the succession can be married off */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.monarch.age = 72;
+    const son = sandbox.makePerson(st, "child", "m", 48, null, [st.monarch.id, 3001]);
+    st.family.push(son);
+    const gd = sandbox.makePerson(st, "grandchild", "f", 25, null, [son.id, 3002]);
+    st.family.push(gd);
+    st.phase = "dyncourt";
+    try { sandbox.render(); } catch (e) { fail(`marriage: dyncourt render threw: ${e.message}`); }
+    const weds = document.querySelectorAll("[data-dcwed]");
+    ok(weds.some(b => +b.attrs["data-dcwed"] === gd.id),
+       "marriage: a 25-year-old granddaughter in the direct line cannot be married off");
+  }
+
+  /* ===== v13: reform tiers ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    const r = sandbox.__reforms.find(x => x.id === "summon_estates");
+    ok(!!r, "tiers: summon_estates not found");
+    ok(sandbox.reformTier(st, r) === "motion", "tiers: an unasked reform is not 'of its own motion'");
+    const free = sandbox.reformBoon(st, r);
+    ok(free && free.stab > 0 && free.legit > 0, "tiers: the freely-given boon is empty");
+
+    sandbox.askReform(st, "summon_estates", 1);
+    const asked = sandbox.reformBoon(st, r);
+    ok(sandbox.reformTier(st, r) === "petition", "tiers: an asked-for reform is not 'upon petition'");
+    ok(asked.stab < free.stab, `tiers: petition boon ${asked.stab} is not less than motion ${free.stab}`);
+
+    sandbox.askReform(st, "summon_estates", 2);
+    ok(sandbox.reformTier(st, r) === "duress", "tiers: a forced reform is not 'under duress'");
+    const forced = sandbox.reformBoon(st, r);
+    ok(!forced.stab && !forced.legit, "tiers: a forced reform still paid a boon");
+    const pen0 = st.legitPen || 0, stab0 = st.stability;
+    sandbox.applyReformBoon(st, r);
+    ok((st.legitPen || 0) > pen0, "tiers: forcing left no lasting mark on legitimacy");
+    ok(st.stability < stab0, "tiers: forcing cost no stability");
+
+    /* and the boon decays as the age moves past it */
+    S = freshGame(); const st2 = B.S;
+    st2.eraIdx = 0; const early = sandbox.reformEraFactor(st2, r);
+    st2.eraIdx = 7; const late = sandbox.reformEraFactor(st2, r);
+    ok(late < early, `tiers: an overdue reform is worth as much as an early one (${early} vs ${late})`);
+  }
+
+  /* ===== v13: the franchise is a weighted gate ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.facs.merchants.mood = 90; st.facs.peasantry.mood = 10;
+    st.franchise = "property";
+    const narrow = sandbox.compMood(st, "commons");
+    st.franchise = "universal";
+    const wide = sandbox.compMood(st, "commons");
+    ok(narrow > wide,
+       `franchise: widening the vote did not move the chamber's mood (${narrow} -> ${wide})`);
+    ok(sandbox.franchiseWeight(st, "peasantry", "commons") === 1,
+       "franchise: universal suffrage does not weight the peasantry fully");
+    st.franchise = "property";
+    ok(sandbox.franchiseWeight(st, "peasantry", "commons") < 0.5,
+       "franchise: a property franchise still counts the whole peasantry");
+    /* provinces are no longer a parliamentary estate anywhere */
+    for (const c of ["nobility", "commons", "broad", "national"])
+      ok((sandbox.__composition[c] || []).indexOf("provinces") < 0,
+         `franchise: provinces are still an estate in "${c}"`);
+  }
+
+  /* ===== v13: legitimacy is regime-specific ===== */
+  {
+    /* the bug that started all of this: a people's republic could not clear ~39 */
+    S = freshGame(); install("people");
+    let st = B.S;
+    st.facs.clergy.mood = 5; st.facs.aristocracy.mood = 5;
+    if (st.facs.workers) { st.facs.workers.present = true; st.facs.workers.mood = 85; }
+    if (st.plan) st.plan.consumer = 48;
+    st._purges = 0; st.legitPen = 0;
+    const peopleLegit = sandbox.legitimacy(st);
+    ok(peopleLegit > 55,
+       `legitimacy: a well-run people's republic reads ${peopleLegit} with the clergy abolished — the old ceiling is still there`);
+
+    /* a junta cannot clear its ceiling however well it does */
+    S = freshGame(); install("junta");
+    st = B.S;
+    st.stability = 95; st.facs.officers.mood = 100; st.legitPen = 0;
+    if (st.junta) st.junta.promised = true;
+    const j = sandbox.legitimacy(st);
+    ok(j <= 50, `legitimacy: a junta reached ${j}, above its ceiling of 50`);
+
+    /* and a ceremonial crown is rewarded rather than punished */
+    S = freshGame(); st = B.S;
+    st.gov.institutions.push({ id: "c", name: "Commons", composition: "commons", power: 0, rights: [] });
+    st.gov.crown.power = 80;
+    const strong = sandbox.legitimacy(st);
+    st.gov.institutions[0].power = 70; st.gov.crown.power = 30;
+    const ceremonial = sandbox.legitimacy(st);
+    ok(ceremonial > strong,
+       `legitimacy: reigning without ruling (${ceremonial}) is still worth less than personal rule (${strong})`);
+  }
+
+  /* ===== v13: every regime can raise money ===== */
+  {
+    for (const r of ["republic", "people"]) {
+      S = freshGame(); install(r);
+      const st = B.S;
+      st.gov.institutions.push({ id: "a", name: "Assembly", composition: "commons", power: 0, rights: ["tax"] });
+      sandbox.transferPower(st, st.gov.institutions[st.gov.institutions.length - 1], 30);
+      const acts = sandbox.availableActions(st).map(a => a.id);
+      ok(acts.includes("grant") || acts.includes("requisition"),
+         `revenue: a ${r} has no way at all to raise emergency funds`);
+    }
+    /* and something, somewhere, can spend less */
+    S = freshGame();
+    const st = B.S;
+    st.military = 70; st.privileges = 4; st._armyUpkeep = 20;
+    ok(sandbox.availableActions(st).map(a => a.id).includes("retrench"),
+       "revenue: there is still no way to cut spending");
+  }
+
+  /* ===== v13: legislation ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 0, rights: ["tax"] });
+    sandbox.transferPower(st, st.gov.institutions[0], 30);
+    st._sitting = true;
+    invariants(st, "bills setup");
+    const avail = sandbox.billsFor(st);
+    ok(avail.length > 0, "bills: no bill is available to a seated chamber in the first age");
+    ok(avail.every(b => b.era[0] <= st.eraIdx && b.era[1] >= st.eraIdx),
+       "bills: a bill outside its age band was offered");
+    ok(!avail.some(b => b.id === "factory"),
+       "bills: a Factory Act was available in the dynastic age");
+
+    const pair = sandbox.chamberBill(st);
+    ok(pair && pair.main, "bills: the chamber produced no bill");
+    st._bill = pair; st.phase = "session";
+    try { sandbox.render(); } catch (e) { fail(`bills: session render threw: ${e.message}`); }
+    const btns = document.querySelectorAll("[data-bill]");
+    ok(btns.length >= 2, `bills: only ${btns.length} answers offered to a bill`);
+    const passBtn = btns.find(b => b.attrs["data-bill"] === "main");
+    ok(!!passBtn, "bills: the chamber's own bill could not be passed");
+    const id = pair.main.id;
+    passBtn.onclick();
+    ok((B.S.billsPassed || []).includes(id), "bills: passing a bill did not record it");
+    ok(!B.S._bill, "bills: the bill was left pending after resolution");
+    invariants(B.S, "after a bill");
+
+    /* a bill already law is not offered again */
+    ok(!sandbox.billsFor(B.S).some(b => b.id === id), "bills: a passed bill came round again");
+  }
 
   /* orphaned nieces belong to their dead parent's line, not to the court */
   {
@@ -1201,7 +1355,7 @@ for (const branch of ["moderate", "terror"]) {
 const ALL_PHASES = [
   "advance","chname","civilpick","congress","convention","court","designate",
   "dynastic","dyncourt","election","ended","event","housefate","juntaexit",
-  "match","naming","outcome","pmname","pmpick","pmoffer","quiet","regentpick",
+  "match","naming","outcome","pmname","pmpick","pmoffer","quiet","regentpick","session",
   "repvote","rolepick","seatshift","succession","terror","tidings","transition",
 ];
 
