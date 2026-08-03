@@ -97,16 +97,26 @@ function familyPanel(){
   const cadets=branchKin(S);
   if(cadets.length){
     const open=!!(S.ui&&S.ui.cadetsOpen);
+    /* group by branch — a branch is a family, so show the family */
     const branches={};
     cadets.forEach(c=>{ const b=c.branch||"a branch"; (branches[b]=branches[b]||[]).push(c); });
-    rows.push(`<div class="person"><span class="pr">cadet lines</span><span style="color:var(--dim)">${cadets.length} of the blood in ${Object.keys(branches).length} branches — kin, claimants if the line fails, and no charge upon the treasury <button class="cadtog" id="cadTog">${open?"hide ▴":"show ▾"}</button></span></div>`);
+    const names=Object.keys(branches).sort();
+    rows.push(`<div class="person"><span class="pr">cadet lines</span><span style="color:var(--dim)">${cadets.length} of the blood in ${names.length} branches — kin, claimants if the line fails, and no charge upon the treasury <button class="cadtog" id="cadTog">${open?"hide \u25b4":"show \u25be"}</button></span></div>`);
     if(open){
-      Object.keys(branches).sort().forEach(b=>{
-        rows.push(`<div class="person cadet"><span class="pr">${esc(b)}</span><span style="color:var(--dim)">${branches[b].sort((x,y)=>y.age-x.age).map(c=>`${esc(c.name)}, ${c.age}${c.spouseId?" ⚭":""}`).join(" · ")}</span></div>`);
+      names.forEach(b=>{
+        const mem=branches[b].slice().sort((x,y)=>y.age-x.age);
+        rows.push(`<div class="person cadhead"><span class="pr">${esc(b)}</span><span style="color:var(--dim)">${mem.length} living</span></div>`);
+        mem.forEach(c=>{
+          const sp=c.spouseId?(S.family||[]).find(x=>x.id===c.spouseId):null;
+          const kids=(S.family||[]).filter(x=>x.alive&&x.parents&&x.parents.indexOf(c.id)>=0);
+          const tr=traitShown(c);
+          rows.push(`<div class="person cadet"><span class="pr">${esc(relLabel(c)||"kin")}</span><span>${esc(c.name)}, ${c.age}</span>${tr?`<span class="trait ${tr.sure?"sure":""}">${tr.sure?"":"\u201c"}${esc(tr.text)}${tr.sure?"":"\u201d"}</span>`:""}${sp?`<span class="wed">\u229a ${esc(sp.name)}${sp.alive===false?" \u2020":""}</span>`:""}${kids.length?`<span class="office">${kids.length===1?"child":"children"}: ${kids.map(k=>esc(k.name)+", "+k.age).join(" \u00b7 ")}</span>`:""}</div>`);
+        });
       });
     }
   }
-  return `<div class="family"><div class="gt"><span>The Royal Family</span><span class="lawpill">${LAWS[S.law].name} succession${spouseOf(S)?" · wed":""}</span></div>${rows.join("")}</div>`;
+  const capped=rows.length>9?" capped":"";
+  return `<div class="family"><div class="gt"><span>The Royal Family</span><span class="lawpill">${LAWS[S.law].name} succession${spouseOf(S)?" \u00b7 wed":""}</span></div><div class="famscroll${capped}">${rows.join("")}</div></div>`;
 }
 
 function render(){
@@ -197,8 +207,9 @@ function render(){
       ${provincePanel()}
     </aside>
     <section class="console">
-      <div class="pinned">
+      <div class="pinned${(S.ui&&S.ui.pinFold)?" folded":""}">
         ${phaseStrip()}
+        <div class="pinfold"><button id="pinFold">${(S.ui&&S.ui.pinFold)?"unpin the panels ▴":"pin the panels ▾"}</button></div>
         ${govHtml}
         ${familyPanel()}
       </div>
@@ -692,14 +703,17 @@ function renderHeirAge(){
   const d=S.dyn;
   const h=(d&&d.kind==="ofage"&&d.heir)?S.family.find(p=>p.id===d.heir.id&&p.alive):null;
   if(!h){ S.dyn=null; S.phase="dyncourt"; return `<div class="sit-text">The court moves on.</div><button class="cont" id="dynSkip">Continue →</button>`; }
-  const direct=heirIsDirect(S,h);
+  const kind=heirKind(S,h);
+  const direct=(kind==="direct");
+  const lineMatch=(kind==="collateral")?directLineMatch(S,h):null;
   const opt=(k,mk,lbl,ch,chips)=>`<button class="choice dyn-desig" data-heirage="${k}">
     <div class="cl"><span class="mk">${mk}</span><span class="lbl">${lbl}</span></div>
     <div class="ch">${ch}</div><div class="costs">${chips}</div></button>`;
   return `<div class="eyebrow">The heir comes of age</div>
     <div class="sit-title">${esc(h.name)}, ${h.age}</div>
-    <div class="sit-text">${direct
-      ? `The sovereign's own ${esc(relLabel(h))} is grown, and the realm has begun to look past the present reign. What is made of them now is what the country gets later.`
+    <div class="sit-text">${
+      kind==="direct" ? `The sovereign's own ${esc(relLabel(h))} is grown, and the realm has begun to look past the present reign. What is made of them now is what the country gets later.`
+      : kind==="sibling" ? `The heir is the sovereign's own ${esc(relLabel(h))} — which is a settled question and an unsettled one at the same time. The line runs through them now, and they have no children.${h.spouseId?"":" Nor, yet, a marriage."}`
       : `${esc(h.name)} is the heir by law and by nobody's particular enthusiasm — the sovereign's ${esc(relLabel(h))}, not their child. The claim is sound on paper. Paper has never been the difficulty.`}</div>
     <div class="choices">
       ${opt("statecraft","›","Schooled in law and statecraft",
@@ -711,12 +725,15 @@ function renderHeirAge(){
       ${opt("progress","☗","Sent on progress through the provinces",
         "months of bad roads and a great many speeches",
         `<span class="chip down">−16 gold</span><span class="chip fac up">Provinces +9</span><span class="chip fac up">Peasantry +5</span>`)}
-      ${direct?"":opt("adopt_in","✦","Brought into the household and styled direct heir",
-        "the claim was always sound; what it lacked was the look of inevitability",
-        `<span class="chip up">legitimacy ▲▲</span><span class="chip fac down">Aristocracy −6</span>`)}
-      ${direct?"":opt("bind","♥","Married into the direct line",
-        "two claims made one, by contract and chapel",
-        `<span class="chip down">−12 gold</span><span class="chip fac up">Aristocracy +7</span><span class="chip up">a rival claim settled</span>`)}
+      ${(kind==="sibling"&&!h.spouseId)?opt("wed_line","♥","Married without delay, to secure the line",
+        "an unmarried heir in his twenties is one bad winter from a disputed crown",
+        `<span class="chip down">−14 gold</span><span class="chip up">+4 Stability</span><span class="chip fac up">Aristocracy +5</span><span class="chip fac up">Clergy +4</span>`):""}
+      ${kind==="collateral"?opt("adopt_in","✦","Brought into the sovereign's household, and styled the direct heir",
+        "adopted into the direct line — the claim was always sound; what it lacked was the look of inevitability",
+        `<span class="chip up">legitimacy ▲▲</span><span class="chip fac down">Aristocracy −6</span>`):""}
+      ${(kind==="collateral"&&lineMatch)?opt("bind","♥",`Married to ${esc(lineMatch.name)}, of the sovereign's own children`,
+        "two claims made one, by contract and chapel — the collateral line and the direct become the same family",
+        `<span class="chip down">−12 gold</span><span class="chip fac up">Aristocracy +7</span><span class="chip up">a rival claim settled</span>`):""}
       ${opt("leave","·","Left to their own household",
         "nothing spent, nothing decided",
         `<span class="chip down">−2 Stability</span><span class="chip">they will arrive a stranger</span>`)}

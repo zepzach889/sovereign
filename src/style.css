@@ -317,10 +317,25 @@
 
 /* The government and the royal family stay put. They are the state of the
    realm, and you should not have to scroll away from them to read a choice. */
-.pinned{position:sticky;top:0;z-index:5;background:var(--bg);
-  padding-top:2px;margin-bottom:2px;
-  box-shadow:0 10px 18px -10px rgba(0,0,0,.65)}
-@media (max-height:760px){ .pinned{position:static;box-shadow:none} }
+.pinned{position:sticky;top:0;z-index:5;
+  background:var(--console);           /* opaque — nothing scrolls through it */
+  padding:14px 20px 8px;margin:-18px -20px 10px;
+  border-bottom:1px solid var(--line);
+  max-height:42vh;overflow-y:auto;
+  box-shadow:0 12px 20px -12px rgba(0,0,0,.8)}
+.pinned::-webkit-scrollbar{width:7px}
+.pinned::-webkit-scrollbar-thumb{background:#1c2731;border-radius:4px}
+.pinned.folded{max-height:none;overflow:visible}
+.pinfold{display:flex;justify-content:flex-end;margin:-4px 0 6px}
+.pinfold button{background:transparent;border:1px solid var(--line);color:var(--dim);
+  font:inherit;font-size:10px;padding:1px 7px;border-radius:3px;cursor:pointer}
+.pinfold button:hover{color:var(--brass);border-color:var(--brass)}
+/* the family list keeps its own leash so a large house cannot swallow the block */
+.famscroll{max-height:none}
+.famscroll.capped{max-height:190px;overflow-y:auto}
+.famscroll.capped::-webkit-scrollbar{width:7px}
+.famscroll.capped::-webkit-scrollbar-thumb{background:#1c2731;border-radius:4px}
+@media (max-height:820px){ .pinned{max-height:36vh} }
 .cadtog{background:transparent;border:1px solid var(--line);color:var(--dim);
   font:inherit;font-size:10px;padding:0 5px;margin-left:6px;border-radius:3px;cursor:pointer}
 .cadtog:hover{color:var(--brass);border-color:var(--brass)}

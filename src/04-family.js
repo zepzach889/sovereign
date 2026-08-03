@@ -104,6 +104,18 @@ function shouldCadet(S,p){
   const h=heirOf(S); if(h&&p.id===h.id)return false;
   if(p.job)return false;                          /* serving officers stay at court */
   if(["spouse","child","childspouse","dowager","former"].includes(p.rel))return false;
+  /* a child belongs to their parents' house. If the parents have gone into
+     a branch, the children went with them — they are not left behind at
+     court to be listed as the sovereign's nieces forever. */
+  if(p.parents&&p.parents.length){
+    const par=p.parents.map(id=>(S.family||[]).find(q=>q.id===id)).filter(Boolean);
+    if(par.some(q=>q.cadet)){ p.branch=p.branch||(par.find(q=>q.cadet).branch); return true; }
+  }
+  /* a spouse follows the person they married */
+  if(p.spouseId){
+    const sp=(S.family||[]).find(q=>q.id===p.spouseId);
+    if(sp&&sp.cadet){ p.branch=p.branch||sp.branch; return true; }
+  }
   if(p.rel==="grandchild"){ return !(h&&p.parents&&p.parents.indexOf(h.id)>=0); }
   if(p.rel==="sibling")return p.age>=30&&!!p.spouseId;  /* married and settled */
   return p.age>=25;

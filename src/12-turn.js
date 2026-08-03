@@ -241,6 +241,27 @@ function toDynastic(){
 function heirIsDirect(S,h){
   return !!(h&&h.parents&&h.parents.indexOf(S.monarch.id)>=0);
 }
+/* Three quite different problems wearing the same word. A son is a
+   successor. A brother is a successor AND a succession crisis in waiting,
+   because the line now runs through him and he has no children. A nephew
+   or cousin is a claim that the country has no particular feeling about.
+   You cannot marry a brother into his own line, which is why he was being
+   offered nonsense. */
+function heirKind(S,h){
+  if(!h)return "direct";
+  if(heirIsDirect(S,h))return "direct";
+  /* derive it from the graph — rel labels are recomputed every render and
+     are not a thing to make decisions on */
+  const mp=(S.monarch&&S.monarch.parents)||[];
+  if(h.parents&&mp.length&&h.parents.some(id=>mp.indexOf(id)>=0))return "sibling";
+  if(h.rel==="sibling"||h.rel==="brother"||h.rel==="sister")return "sibling";
+  return "collateral";
+}
+/* someone of the sovereign's own body for a collateral heir to marry */
+function directLineMatch(S,h){
+  return (S.family||[]).find(p=>p.alive&&!p.spouseId&&p.rel==="child"
+    &&p.id!==(h&&h.id)&&p.age>=16&&p.gender!==(h&&h.gender))||null;
+}
 function doHeirAge(kind){
   /* a stale button from a previous render must not apply the beat twice */
   if(S.phase!=="dynastic"||!S.dyn||S.dyn.kind!=="ofage")return;
@@ -264,10 +285,18 @@ function doHeirAge(kind){
     effect:S2=>{ h.rel="child"; h.styled=true; S2.legitPen=Math.max(0,(S2.legitPen||0)-9); },
     chron:S2=>`${h.name} was brought into the sovereign's own household and styled as the direct heir; the great houses were not consulted.`,
     out:`On paper the claim was always sound. What it lacked was the appearance of inevitability, which is most of what a succession is — and that has now been supplied, at the price of every family that had hoped otherwise.`};
-  else if(kind==="bind") out={cost:{gold:-12,stability:+3},fac:{aristocracy:+7},
-    effect:S2=>{ h.bound=true; S2.rival=null; },
-    chron:S2=>`${h.name}, the collateral heir, was married into the direct line, and two claims became one.`,
-    out:`A contract, a chapel, and a succession that no longer has two answers. Cheaper than a war and considerably more durable than a proclamation.`};
+  else if(kind==="bind"){
+    const m=directLineMatch(S,h);
+    out={cost:{gold:-12,stability:+3},fac:{aristocracy:+7},
+      effect:S2=>{ h.bound=true; S2.rival=null;
+        if(m){ h.spouseId=m.id; m.spouseId=h.id; } },
+      chron:S2=>`${h.name}, the collateral heir, was married to ${m?m.name:"the sovereign's own line"}, and two claims became one.`,
+      out:`A contract, a chapel, and a succession that no longer has two answers${m?` — ${m.name} is now both cousin and consort, which the heralds will spend a decade drawing`:""}. Cheaper than a war and considerably more durable than a proclamation.`};
+  }
+  else if(kind==="wed_line") out={cost:{gold:-14,stability:+4},fac:{aristocracy:+5,clergy:+4},
+    effect:S2=>{ h.urgentMatch=true; S2._matchFor=h.id; },
+    chron:S2=>`${h.name}, the sovereign's brother and heir, was married without delay; the line of succession now had somewhere to go after him.`,
+    out:`The whole realm can count. An unmarried heir in his twenties is one bad winter from a disputed crown, and everybody at court has been saying so for a year without saying it out loud.`};
   else out={cost:{stability:-2},fac:{aristocracy:+2},
     chron:S2=>`${h.name}, the heir, was left to their own household and their own devices.`,
     out:`Nothing is spent and nothing is decided. They will arrive at the throne as a stranger to the army, the provinces and the court — which has worked before, and has also gone very badly.`};
@@ -471,21 +500,33 @@ function matchNeed(S){
   if(!out.length)out.push({k:"plain"});
   return out;
 }
+/* keep the foreign and domestic suits common, but let the rest rotate, so
+   the field is not the same three names with different spelling */
+function shuffleMatches(list){
+  for(let i=list.length-1;i>1;i--){ const j=1+Math.floor(Math.random()*i); const t=list[i]; list[i]=list[j]; list[j]=t; }
+}
 function matchCandidates(S,p){
   const key="m"+p.id;
   if(S._matchC&&S._matchC.key===key) return S._matchC.list;
   const sg=p.gender==="m"?"f":"m";
   const used=usedNames(S);
   const needs=matchNeed(S);
-  const offers=1+rand(3);   /* never nil — a sovereign must be able to act */
+  const offers=3+rand(3);   /* three to five suits pressed, never nil */
   const list=[
     {kind:"foreign",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-12+rand(21)),
      note:"kin of a crown beyond the border",chips:[["down","−14 gold"],["up","+4 Arms"],["up","a friend abroad"]]},
     {kind:"domestic",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-10+rand(19)),
      note:"of a great house of the realm",chips:[["fac up","Aristocracy +7"],["up","the old blood bound closer"]]},
     {kind:"love",name:nameFor(sg,used),house:null,age:Math.max(16,p.age-3+rand(7)),
-     note:"no house worth the name — but they will not be told no",chips:[["up","+6 Stability"],["up","a fertile and willing marriage"],["fac down","Aristocracy −6"],["down","no alliance"]]}
+     note:"no house worth the name — but they will not be told no",chips:[["up","+6 Stability"],["up","a fertile and willing marriage"],["fac down","Aristocracy −6"],["down","no alliance"]]},
+    {kind:"church",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-8+rand(15)),
+     note:"of a house the hierarchs have blessed, at some length",chips:[["fac up","Clergy +10"],["up","legitimacy steadies"],["fac down","Merchants −3"]]},
+    {kind:"money",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-6+rand(17)),
+     note:"new money, and a great deal of it — the heralds are working on the pedigree",chips:[["up","+26 gold"],["fac up","Merchants +9"],["fac down","Aristocracy −7"]]},
+    {kind:"soldier",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-6+rand(15)),
+     note:"of a family that has given the realm three generations of officers",chips:[["fac up","Officer Corps +9"],["up","+5 Arms"],["fac down","Clergy −2"]]}
   ];
+  shuffleMatches(list);
   /* Terms bend toward whatever the realm is short of, so the same three
      offers never come round twice. A dowry matters when the treasury is
      empty and not otherwise. */
@@ -503,7 +544,7 @@ function matchCandidates(S,p){
       if(f&&!f.dowry){ f.arms=true; f.note="kin of a crown with regiments to spare";
         f.chips=[["down","−14 gold"],["up","+11 Arms"],["up","a friend abroad"]]; } }
   });
-  const trimmed=list.slice(0,Math.max(1,Math.min(3,offers)));
+  const trimmed=list.slice(0,Math.max(3,Math.min(5,offers)));
   S._matchC={key,list:trimmed};
   return trimmed;
 }
@@ -587,6 +628,16 @@ function doMatch(i){
       chron:S=>`${p.name} of the royal house wed ${c.name} of House ${c.house}, of the realm's own great blood.`,
       out:`Old blood binds closer to the crown. One great house is now family — and behaves accordingly, for good and ill.`};
   }
+  else if(c.kind==="church") out={fac:{clergy:+10,merchants:-3},
+    effect:S2=>{S2.legitPen=Math.max(0,(S2.legitPen||0)-5);},
+    chron:S=>`${p.name} of the royal house wed ${c.name} of House ${c.house}, with the blessing of every hierarch who could be got to the cathedral.`,
+    out:`The church has been given a stake in this family, publicly and at length. The merchants note that the sermon ran to fifty minutes and nobody asked them for anything.`};
+  else if(c.kind==="money") out={cost:{gold:+26},fac:{merchants:+9,aristocracy:-7},
+    chron:S=>`${p.name} of the royal house wed ${c.name}, whose family's money is newer than the chapel it was spent in.`,
+    out:`The chests arrive, the heralds invent a pedigree, and the great houses are appalled in a way they will still be enjoying in thirty years. The treasury does not care.`};
+  else if(c.kind==="soldier") out={cost:{arms:+5},fac:{officers:+9,clergy:-2},
+    chron:S=>`${p.name} of the royal house wed ${c.name}, of a family that has given the realm three generations of officers.`,
+    out:`Not a great house, but every colonel in the army knows the name and half of them served under the bride's father. The regiments take it personally, in the good sense.`};
   else { sp.love=true; p.love=true;
     out={cost:{stability:+6},fac:{aristocracy:-6,peasantry:+4},
     chron:S=>`${p.name} of the royal house married ${c.name} for no reason of state whatever, and the realm rather enjoyed it.`,
