@@ -21,7 +21,7 @@ const MILESTONES=[
     line:"for a span of golden years every estate of the realm was content at once — a harmony later ages were shamed by."},
   {id:"queen_regnant",label:"A Queen Regnant",test:S=>S._femaleReigns>=1,
     line:"a woman wore the crown in her own right, and the realm discovered the sky did not fall."},
-  {id:"pm",label:"Responsible Government",test:S=>!!S.pm,
+  {id:"pm",label:"Responsible Government",test:S=>typeof pmGoverns==="function"&&pmGoverns(S),
     line:"the crown's ministers became the realm's true government, answerable to the chamber rather than the throne."},
   {id:"first_election",label:"The People's Verdict",test:S=>(S._elections||0)>=1,
     line:"for the first time, power changed hands by the counting of votes rather than of heads."},

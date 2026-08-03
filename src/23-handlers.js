@@ -206,7 +206,12 @@ function doDyn(kind){
     chron:S=>`${styled(S,S.monarch)} wed ${sp.name} of one of the realm's great houses, binding old blood to the throne.`,
     out:`A union of crown and country. ${sp.name}, ${sp.age}, is now consort; one great house is family, and the others take careful note.`},"endturn");}
   else if(kind==="marry_none"){applyOutcome({chron:null,out:"The envoys are dismissed with courtesy. The sovereign remains unwed — and the line remains a question."},"endturn");}
-  else if(kind==="adopt"){const g=chance(0.5)?"m":"f";const c=makePerson(S,"child",g,10+rand(6));S.family.push(c);S.designated=c.id;
+  else if(kind==="adopt"){const g=chance(0.5)?"m":"f";
+    /* adopted INTO the house — the whole point of the instrument. Without
+       recorded parents they are kin to nobody and inherit an empty court. */
+    const ghost=PID++;
+    const c=makePerson(S,"child",g,10+rand(6),null,[S.monarch.id,ghost]);
+    c.adopted=true; S.family.push(c);S.designated=c.id;
     applyOutcome({fac:{aristocracy:-5},chron:S=>`the sovereign, without issue, adopted ${c.name} of a loyal house as heir; the great houses swallowed their objections, mostly.`,
       out:`${c.name}, ${c.age}, is adopted into the royal household and named heir. The line is secured — by ink rather than blood, which some will never forget.`},"endturn");}
   else if(kind==="ignore"){applyOutcome({chron:null,out:"You trust to fate. The court's whispering does not stop, but it quiets — for now."},"endturn");}

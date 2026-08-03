@@ -17,6 +17,16 @@ function successionOptions(){
   return {mode:"crisis",sibs};
 }
 function crownPerson(p,houseName,viaCrisis){
+  /* A sovereign who laid the crown down is not dead. They step out of the
+     styling and into the family, where the realm can go on being reminded
+     of them — which is rather the point of an abdication. */
+  if(S._abdicated&&S.monarch&&S.monarch.alive!==false){
+    const ex=Object.assign({},S.monarch);
+    ex.rel="dowager"; ex.job=null; ex.wasSovereign=true; ex.abdicated=true;
+    if(!S.family.some(q=>q.id===ex.id))S.family.push(ex);
+    S._abdicated=false;
+  }
+
   /* Relations are derived and never stored; a title is the opposite. It is
      what the realm called them at the time, and no later regime gets to
      revise it — which is how six dead emperors came to be listed as

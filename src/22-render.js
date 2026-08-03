@@ -67,7 +67,7 @@ function monarchLine(){
   const bits=[];
   if(t)bits.push(`<span class="trait ${t.sure?"sure":""}">${t.sure?"":"“"}${esc(t.text)}${t.sure?"":"”"}</span>`);
   if(S.regency)bits.push(`<span class="office" style="color:var(--crisis)">${esc(S.regency.name)} holds the seals</span>`);
-  return bits.length?`<div class="person mon"><span class="pr">the sovereign</span><span>${esc(styled(S,S.monarch))}, ${S.monarch.age}</span>${bits.join("")}</div>`:"";
+  return `<div class="person mon"><span class="pr">the sovereign</span><span>${esc(styled(S,S.monarch))}, ${S.monarch.age}</span>${bits.join("")}</div>`;
 }
 function provincePanel(){
   const ps=provinces(S); if(!ps.length)return "";
@@ -92,7 +92,7 @@ function familyPanel(){
     <span>${esc(p.name)}, ${p.age}</span>${tr?`<span class="trait ${tr.sure?"sure":""}">${tr.sure?"":"“"}${esc(tr.text)}${tr.sure?"":"”"}</span>`:""}${p.job?`<span class="office">${esc(((typeof ROLES!=="undefined"?ROLES:[]).find(r=>r.id===p.job)||{}).name||"")}</span>`:""}${p.love?`<span class="office" style="color:#c76b8a">love match</span>`:""}${(function(){
       if(!p.spouseId)return "";
       const sp=(S.family||[]).find(x=>x.id===p.spouseId)||((S.monarch&&S.monarch.id===p.spouseId)?S.monarch:null);
-      return sp?`<span class="wed">⚭ ${esc(sp.name)}${sp.alive===false?" †":""}</span>`:"";})()}${h&&h.id===p.id?`<span class="heirmark">— heir</span>`:""}${S.rival&&S.rival.id===p.id?`<span class="rival">— rival claimant</span>`:""}${p.exiled?`<span class="rival" style="color:var(--dim)">— exiled</span>`:""}</div>`); });
+      return sp?`<span class="wed">⚭ ${esc(sp.name)}${sp.alive===false?" †":""}</span>`:"";})()}${p.abdicated?`<span class="office">laid down the crown</span>`:""}${h&&h.id===p.id?`<span class="heirmark">— heir</span>`:""}${S.rival&&S.rival.id===p.id?`<span class="rival">— rival claimant</span>`:""}${p.exiled?`<span class="rival" style="color:var(--dim)">— exiled</span>`:""}</div>`); });
   if(!rows.length) rows.push(`<div class="person"><span class="pr">—</span><span style="color:var(--dim);font-style:italic">no living kin of note</span></div>`);
   return `<div class="family"><div class="gt"><span>The Royal Family</span><span class="lawpill">${LAWS[S.law].name} succession${spouseOf(S)?" · wed":""}</span></div>${rows.join("")}</div>`;
 }
@@ -115,6 +115,7 @@ function render(){
     ${(S.regency&&isMonarchy(S))?`<div class="regency">A regency governs in the sovereign's minority — ${esc(S.regency.name)} holds the seals.</div>`:""}
     <div class="powerrow"><span class="pn">${esc(execWord(S))}</span><span class="powerbar"><i style="width:${S.gov.crown.power}%"></i></span><span class="pp">${S.gov.crown.power}</span></div>
     ${instHtml}${S.gov.cabinet?`<div class="rights" style="margin-left:0;margin-top:6px">Cabinet: ${esc(S.gov.cabinet)} — action costs −10% · the realm develops and steadies more readily</div>`:""}${S.gov.charter?`<div class="rights" style="margin-left:0">Charter: ${esc(S.gov.charter)}</div>`:""}
+    ${councilPanel(S)}
     ${prerogPanel(S)}
   </div>`;
   const facHtml=Object.keys(S.facs).map(k=>{const f=S.facs[k];
@@ -548,7 +549,7 @@ function renderSuccession(){
         <div class="costs"><span class="chip up">continuity of the House</span><span class="chip down">−6 Stability (a contested step)</span></div></button>`).join("");
     return `<div class="eyebrow">Succession crisis — the line has failed</div>
       <div class="sit-title">No Heir Stands</div>
-      <div class="sit-text">${esc(styled(S,S.monarch))} is dead with no heir under ${LAWS[S.law].name.toLowerCase()} law. ${so.sibs.length?"Kin of the old House survive — or":"No kin of the House survive."} the crown may pass to a new House entirely${S.pm?" by the chamber's choice — or pass to no one at all. A contest of arms is unthinkable now; the age of settling crowns by war has closed":`: by the choice of the ${S.gov.institutions.length?"chamber and the wealthiest houses":"wealthiest houses"}, or by a contest of arms among the strongest`}.</div>
+      <div class="sit-text">${esc(styled(S,S.monarch))} is dead with no heir under ${LAWS[S.law].name.toLowerCase()} law. ${so.sibs.length?"Kin of the old House survive — or":"No kin of the House survive."} the crown may pass to a new House entirely${warClosed(S)?(S.gov.institutions.length?" by the chamber's choice":" by the choice of the great houses")+" — or pass to no one at all. A contest of arms is unthinkable now; the age of settling crowns by war has closed":`: by the choice of the ${S.gov.institutions.length?"chamber and the wealthiest houses":"wealthiest houses"}, or by a contest of arms among the strongest`}.</div>
       <div class="choices">
         ${sibBtns}
         <button class="choice" data-crisis="wealth"><div class="cl"><span class="mk">›</span><span class="lbl">Let the ${S.gov.institutions.length?"chamber":"great houses"} choose from the wealthiest houses</span></div>
@@ -603,6 +604,21 @@ function renderElection(){
    The point of showing it is that the player should be able to watch a
    right go dark, and know beforehand which one is next.
    ===================================================================== */
+/* The offices of state, listed where a government is listed — which is
+   where Zach looked for them, correctly, and did not find them. */
+function councilPanel(S){
+  if(!S.gov.cabinet)return "";
+  const rows=ROLES.map(r=>{
+    const h=roleHolder(S,r.id);
+    if(!h)return `<div class="prow" style="opacity:.5"><span class="pn">${esc(roleName(S,r))}</span><span class="pw">vacant</span></div>`;
+    const b=skillBand(h.skill==null?50:h.skill);
+    const royal=!!(S.family||[]).some(x=>x.id===h.id);
+    return `<div class="prow"><span class="pn">${esc(roleName(S,r))} <small style="color:var(--dim)">· ${esc(h.name)}${royal?", of the blood":""}</small></span><span class="pw ${b.cls}">${esc(b.label)}</span></div>`;
+  }).join("");
+  const filled=ROLES.filter(r=>!!roleHolder(S,r.id)).length;
+  return `<div class="press" style="margin-top:8px"><div class="gt">${esc(S.gov.cabinet)}</div>${rows}
+    <div class="pnote">${filled} of ${ROLES.length} posts filled — a capable officer cheapens the work of their own department and quietly improves it; an incompetent one does the reverse, every turn they sit.</div></div>`;
+}
 function prerogPanel(S){
   if(!isMonarchy(S)||!S.gov.institutions.length)return "";
   const rows=PREROGATIVES.map(p=>{
@@ -677,13 +693,29 @@ function renderChName(){
     <button class="cont" id="chConfirm">Let it convene →</button>`;
 }
 function dynSkipBtn(){return `<div style="margin-top:12px;text-align:right"><button class="cont" data-dynskip="1" style="opacity:.8">Turn away from these matters →</button></div>`;}
-function pmGender(){ return eraIdx(S)<=2?"m":(chance(0.5)?"m":"f"); }
+/* No woman held a ministry anywhere before the franchise was mass, and
+   for a long while after that it stayed rare. The realm may run ahead of
+   the world in every other respect; it does not run ahead in this. */
+function officeGender(S){
+  const e=eraIdx(S);
+  if(e<7)return "m";
+  const odds=(e===7)?0.08:(e===8)?0.22:0.4;
+  return chance(odds)?"f":"m";
+}
+function pmGender(){ return officeGender(S); }
 function pmName(){ return nameFor(pmGender(),usedNames(S))+" "+pick(surnamePool()); }
 function doPMName(v){
   const er=runElection();
   S._pmOffice=v||"Prime Minister";
-  installPm(S,er.winner,null,"chamber");
   S.nextElection=S.turn+electionEvery(S);
+  /* a crown in personal rule names its own first minister — it does not
+     merely ratify whoever the benches happen to have returned */
+  if(crownAppointsPm(S)){
+    S._pmField=pmField(S,er.winner);
+    S._pmFieldAfter=S._afterName||null; S._afterName=null;
+    S.phase="pmpick"; render(); return;
+  }
+  installPm(S,er.winner,null,"chamber");
   S._seat=seatNow(S); S._seatShift=null;
   checkMilestones();
   const nx=S._afterName;S._afterName=null;routeNext(nx);

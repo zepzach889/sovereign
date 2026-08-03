@@ -57,6 +57,36 @@ const ACTIONS=[
       return {cost:{gold:+6,stability:-3},fac:{aristocracy:-2},chron:S=>`the ${c.inst.name} refused the Crown's request, and only a thin, grudging sum was raised.`,
         out:"The chamber is in no mood to be generous. A fraction of the ask — and a lecture besides."};
     }},
+  { id:"assent",label:"Withhold assent",cool:3,
+    hint:"the chamber has passed it; the crown declines to make it law",
+    gain:"the bill dies — and so does a little of the crown's remaining credit",
+    cost:{stability:-5},requires:S=>hasPrerog(S,"assent")&&S.gov.institutions.length>0,
+    resolve:S=>{ const fx={}; (composition[S.gov.institutions[0].composition]||[]).forEach(k=>{fx[k]=-7;});
+      return {cost:{stability:-5},fac:fx,
+        effect:S2=>{ S2.legitPen=(S2.legitPen||0)+5; bumpPressure(S2,"constitutional",9);
+          S2._assents=(S2._assents||0)+1;
+          if(S2._assents>=3){ spendPrerog(S2,"assent");
+            S2.notices.push("The veto is spent. A right used three times against a chamber that keeps returning is not a right; it is a quarrel, and this one is over."); } },
+        chron:S2=>`the ${crownWord(S2)} withheld its assent, and the bill died on the table.`,
+        out:"It does not become law. The benches take the lesson — which is that the thing standing between them and the country's business is one person, and persons can be worked around."};}},
+  { id:"peers",label:"Create peers",cool:4,
+    hint:"the upper house can always be made larger, and the new men will remember who made them",
+    gain:"the upper chamber bends toward the crown",
+    cost:{gold:-24},requires:S=>hasPrerog(S,"peers")&&S.gov.institutions.some(i=>i.composition==="nobility"),
+    resolve:S=>({cost:{gold:-24},fac:{aristocracy:-6,merchants:+4},
+      effect:S2=>{ const up=S2.gov.institutions.find(i=>i.composition==="nobility");
+        if(up&&up.power>0)transferPower(S2,S2.gov.crown,Math.min(6,up.power));
+        S2.stability=clamp(S2.stability-3); },
+      chron:S2=>`the ${crownWord(S2)} created a batch of new peers, and the upper house discovered it could be diluted.`,
+      out:"The writs go out. The old families are appalled, the new ones are grateful, and the arithmetic of the upper chamber quietly changes. This threat has ended more constitutional crises than any speech."})},
+  { id:"pardon",label:"Grant a pardon",cool:2,
+    hint:"one life, one sentence, at the crown's word — the last prerogative to go anywhere",
+    gain:"a gesture the country notices out of all proportion to its cost",
+    cost:{},requires:S=>hasPrerog(S,"pardon"),
+    resolve:S=>({cost:{stability:+2},fac:{peasantry:+5,reformers:+3,aristocracy:-2},
+      effect:S2=>{S2.legitPen=Math.max(0,(S2.legitPen||0)-3);},
+      chron:S2=>`the ${crownWord(S2)} pardoned a condemned man, and the realm talked of nothing else for a season.`,
+      out:"A signature, a life, and a story that outlives every statute passed this decade. Mercy is cheap and it is remembered — which is exactly why it survived when everything else was taken away."})},
   { id:"summon",label:"Summon the chamber",cool:1,
     hint:"call them, hear the grievances, and ask for the money — which is what they are for",
     gain:"an extraordinary grant, and a constitutional question postponed",
@@ -77,12 +107,6 @@ const ACTIONS=[
     cost:{gold:-16,stability:+3},fac:{provinces:+8,peasantry:+3},requires:S=>true,
     chron:S=>`the Crown made a great progress through the provinces, and the far country remembered it had a sovereign.`,
     out:["Banners, feasts, petitions heard in person. The provinces, so often forgotten, feel seen."]},
-  { id:"appoint",label:"Appoint capable ministers",cool:3,
-    hint:"good administration steadies the realm and its books",
-    cost:{gold:-10,stability:+5},fac:{merchants:+3},requires:S=>S.gov.cabinet,
-    effect:S=>{S.development=clamp(S.development+3);},
-    chron:S=>`the Crown filled its cabinet with able men, and the machinery of ${S.nation} turned more smoothly.`,
-    out:["Ministers chosen for merit over blood. The paperwork of the realm stops rotting on desks."]},
   { id:"address_commons",label:"Address the lower chamber in person",cool:3,
     hint:"the crown — or the minister — speaks to the people's benches directly",
     gain:"+4 Stability, the common estates warm",
@@ -281,7 +305,7 @@ function actView(S,a){
   Object.keys(map).map(Number).sort((x,y)=>x-y).forEach(k=>{ if(ei>=k) form=map[k]; });
   return form?Object.assign({},a,form):a;
 }
-const MONARCH_ONLY=["patronize","festival","privileges","appoint","tax_request","abdicate","dissolve","refuse_ministry"];
+const MONARCH_ONLY=["patronize","festival","privileges","tax_request","abdicate","dissolve","refuse_ministry"];
 const REGIME_ONLY={martial_law:"junta",purge_officers:"junta",plebiscite:"junta",promise_elections:"junta",seizures:"junta",
   postpone_vote:"republic",narrow_franchise:"republic",prosecute_opposition:"republic"};
 function availableActions(S){ return ACTIONS.filter(a=>(!REGIME_ONLY[a.id]||regimeIs(S,REGIME_ONLY[a.id]))&&(regimeIs(S,"monarchy")||!MONARCH_ONLY.includes(a.id))&&a.requires(S)&&!onCooldown(S,a.id)&&costMod(S,a.id)!==0); }

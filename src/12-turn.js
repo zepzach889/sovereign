@@ -25,8 +25,12 @@ function afterTidings(){ S.notices=[]; proceedToElection(false); render(); }
 function proceedToElection(first){
   const mode=electionMode(S);
   /* No ministry, or a crown that summons rather than schedules — either
-     way nothing goes to the country this season. */
-  if(mode!=="cycle"){ rollEvent(first); return; }
+     way nothing goes to the country this season, UNLESS the crown has
+     just dissolved, which is precisely a demand that it should. */
+  if(mode==="none"){ rollEvent(first); return; }
+  if(mode!=="cycle"&&!S._forceElection){ rollEvent(first); return; }
+  if(S._forceElection){ S._forceElection=false; S._unsummoned=0;
+    if(S.pm){ S._electionResult=runElection(); S.phase="election"; return; } }
   if(S.pm&&S._minority&&chance(0.45)){
     S._minority=false; S.stability=clamp(S.stability-5);
     S.chronicle.push({year:S.year,text:`In ${S.year}, the ${esc0(S.pm.office)} of the minority lost the confidence of the chamber and fell.`});
@@ -99,7 +103,11 @@ function installPm(S,bloc,holder,how){
 }
 function doPmPick(i){
   const f=(S._pmField||[])[i]; S._pmField=null;
-  if(!f){ checkMilestones(); rollEvent(false); render(); return; }
+  const route=S._pmFieldAfter; S._pmFieldAfter=null;
+  const onward=()=>{ checkMilestones();
+    if(route!==undefined&&route!==null){ routeNext(route); return; }
+    rollEvent(false); render(); };
+  if(!f){ onward(); return; }
   if(!f.winner){
     /* choosing against the chamber is the prerogative working exactly as
        designed, and exactly as resented */
@@ -109,7 +117,8 @@ function doPmPick(i){
     bumpPressure(S,"constitutional",7);
   }
   installPm(S,f.bloc,f.holder,f.winner?"chamber":"crown");
-  checkMilestones(); rollEvent(false); render();
+  S._seat=seatNow(S); S._seatShift=null;
+  onward();
 }
 function doPmAccept(){
   const o=S._pmOffer; S._pmOffer=null;
@@ -146,12 +155,14 @@ function doPmRefuse(){
       ?`The country has answered the Crown. ${S.facs[o.bloc].name} are returned stronger, and the right to refuse a ministry is spent — it will not be offered to you again.`
       :`The right to refuse a ministry is spent. Used three times in living memory, it has stopped meaning anything.`);
     installPm(S,answered?o.bloc:er.winner,answered?o.holder:null,"chamber");
-  } else {
-    S.chronicle.push({year:S.year,text:`In ${S.year}, the country answered the Crown's dissolution as the palace had hoped, and the ${S.facs[er.winner].name} interest formed a ministry.`});
-    installPm(S,er.winner,null,"crown");
+    S.nextElection=S.turn+electionEvery(S);
+    checkMilestones(); rollEvent(false); render(); return;
   }
+  S.chronicle.push({year:S.year,text:`In ${S.year}, the country answered the Crown's dissolution as the palace had hoped, and the benches came back rearranged.`});
   S.nextElection=S.turn+electionEvery(S);
-  checkMilestones(); rollEvent(false); render();
+  /* the crown won the argument; the crown now chooses */
+  S._pmField=pmField(S,er.winner);
+  S.phase="pmpick"; render();
 }
 function doSeatShift(){
   const want=S._seatShift; S._seatShift=null;
@@ -219,16 +230,117 @@ function toDynastic(){
 }
 function toDynCourt(){ S.dyn=null; S.result=null; S.phase="dyncourt"; render(); }
 
+/* =====================================================================
+   THE OFFICES OF STATE
+   Five posts. The same five under a crown, a junta, a republic and a
+   people's republic — what changes across three hundred years is not the
+   work but who has the giving of it: royal gift, then ministerial
+   patronage, then party spoils. Watching one office pass through all
+   three is most of the point.
+   ===================================================================== */
 const ROLES=[
   {id:"marshal",name:"Marshal of the Host",dom:"martial",fac:{officers:+7},
-   hint:"command of the armies given to one of the blood",gives:"Arms hold steadier · officers warm to the house"},
+   alt:{republic:"Minister of War",junta:"Chief of the General Staff",people:"Commissar for Defence"},
+   hint:"command of the armies",gives:"Arms hold steadier · officers warm to the government"},
   {id:"primate",name:"Primate of the Realm",dom:"faith",fac:{clergy:+8},
-   hint:"a mitre for a royal child — the church bound to the dynasty",gives:"Clergy warm · legitimacy steadies"},
+   alt:{republic:"Minister of Public Instruction",junta:"Minister of Public Instruction",people:"Commissar for Enlightenment"},
+   hint:"the care of souls, or of what has replaced them",gives:"Clergy warm · legitimacy steadies"},
   {id:"governor",name:"Governor of the Provinces",dom:"civil",fac:{provinces:+7},
-   hint:"the far country given a face it recognizes",gives:"Provinces warm · unrest in the country softens"},
+   alt:{republic:"Minister of the Interior",junta:"Minister of the Interior",people:"Commissar for the Interior"},
+   hint:"the far country, given a face it recognizes",gives:"Provinces warm · unrest in the country softens"},
   {id:"chancellor",name:"Chancellor of the Exchequer",dom:"fiscal",fac:{merchants:+6},
-   hint:"the purse entrusted to kin rather than to strangers",gives:"Merchants warm · the treasury runs a little better"}
+   alt:{republic:"Minister of Finance",junta:"Minister of Finance",people:"Commissar for the Plan"},
+   hint:"the purse",gives:"Merchants warm · the treasury runs a little better"},
+  {id:"seals",name:"Keeper of the Seals",dom:"law",fac:{aristocracy:+4,reformers:+3},
+   alt:{republic:"Minister of Justice",junta:"Judge Advocate General",people:"Commissar for State Security"},
+   hint:"the law, the courts, and the writing down of what the state has decided",gives:"Consent comes easier · the courts hold · reform costs less"}
 ];
+function roleName(S,r){
+  const rg=(S&&S.regime)||"monarchy";
+  if(rg!=="monarchy"&&r.alt&&r.alt[rg])return r.alt[rg];
+  return r.name;
+}
+function roleById(id){ return ROLES.find(r=>r.id===id)||null; }
+
+/* ---- competence, which is not the same thing as loyalty ---- */
+const SKILL_BANDS=[
+  {min:80,label:"outstanding",cls:"up"},
+  {min:62,label:"capable",cls:"up"},
+  {min:42,label:"adequate",cls:""},
+  {min:24,label:"out of their depth",cls:"down"},
+  {min:0, label:"a disaster waiting",cls:"down"}
+];
+function skillBand(v){ return SKILL_BANDS.find(b=>v>=b.min)||SKILL_BANDS[SKILL_BANDS.length-1]; }
+const KIND_DOM={noble:"civil",cleric:"faith",soldier:"martial",lawyer:"law",merchant:"fiscal",steward:"civil"};
+function rollSkill(S,cand,dom){
+  let v=20+rand(45);
+  if(cand.kind&&KIND_DOM[cand.kind]===dom)v+=22;      /* trained to it */
+  if(cand.royal)v-=8;                                  /* raised to be royal, not useful */
+  if(cand.trait==="able")v+=14; if(cand.trait==="idle")v-=14;
+  if(eraIdx(S)>=5)v+=6;                                /* an examined civil service */
+  return Math.max(2,Math.min(98,v));
+}
+
+/* A fresh field for THIS office. Not one pool shared across the whole
+   council — the men who might run the treasury are not the men who might
+   run the army, and sometimes there is nobody good for either. */
+function officeField(S,roleId){
+  const r=roleById(roleId); if(!r)return [];
+  S._offField=S._offField||{};
+  const key=roleId+":"+(S.turn||0);
+  if(S._offField[roleId]&&S._offField[roleId].key===key)return S._offField[roleId].list;
+  const list=[];
+  const n=2+rand(3);
+  for(let i=0;i<n;i++){
+    const c=newCourtier(S);
+    c.skill=rollSkill(S,c,r.dom);
+    c.forOffice=roleId;
+    list.push(c);
+  }
+  /* and the blood, if any of it is idle and grown */
+  if(isMonarchy(S)){
+    roleEligible(S).sort((a,b)=>b.age-a.age).slice(0,3).forEach(p=>{
+      list.push({id:p.id,name:p.name,age:p.age,gender:p.gender,trait:p.trait,
+        royal:true,alive:true,job:null,bloc:"aristocracy",label:"of the blood",
+        skill:rollSkill(S,{royal:true,trait:p.trait},r.dom),forOffice:roleId});
+    });
+  }
+  S._offField[roleId]={key,list};
+  return list;
+}
+/* what a good or a bad officer actually does, every turn they serve */
+function officeUpkeep(S){
+  ROLES.forEach(r=>{
+    const h=roleHolder(S,r.id); if(!h)return;
+    const sk=(h.skill==null)?50:h.skill;
+    if(sk>=62){
+      if(r.dom==="fiscal")S.treasury+=3;
+      if(r.dom==="martial")S.military=clamp(S.military+1);
+      if(r.dom==="civil")S.stability=clamp(S.stability+1);
+      if(r.dom==="faith")S.legitPen=Math.max(0,(S.legitPen||0)-1);
+      if(r.dom==="law")S.stability=clamp(S.stability+1);
+    } else if(sk<32){
+      if(r.dom==="fiscal")S.treasury-=3;
+      if(r.dom==="martial")S.military=clamp(S.military-1);
+      if(r.dom==="civil")S.stability=clamp(S.stability-1);
+      if(r.dom==="faith")S.legitPen=(S.legitPen||0)+1;
+      if(r.dom==="law")S.legitPen=(S.legitPen||0)+1;
+    }
+  });
+}
+/* and what they do to the price of governing in their own department */
+const ACTION_DOM={levy:"martial",host:"martial",arms:"martial",drill:"martial",
+  patronize:"faith",festival:"faith",works:"fiscal",trade:"fiscal",tax_decree:"fiscal",
+  tax_request:"fiscal",tour:"civil",assize:"law",summon:"law",charter:"law"};
+function officeCostMod(S,actId){
+  const dom=ACTION_DOM[actId]; if(!dom)return 1;
+  const r=ROLES.find(x=>x.dom===dom); if(!r)return 1;
+  const h=roleHolder(S,r.id); if(!h)return 1;
+  const sk=(h.skill==null)?50:h.skill;
+  if(sk>=62)return 0.88;
+  if(sk<32)return 1.10;
+  return 1;
+}
 function roleHolder(S,id){
   const royal=S.family.find(p=>p.alive&&p.job===id);
   if(royal)return royal;
@@ -247,7 +359,7 @@ const COURT_KINDS=[
 function newCourtier(S){
   const k=pick(COURT_KINDS.filter(x=>S.facs[x.bloc]&&S.facs[x.bloc].present)||COURT_KINDS);
   const kk=k||COURT_KINDS[0];
-  const g=(eraIdx(S)>=4&&chance(0.35))?"f":"m";
+  const g=(typeof officeGender==="function")?officeGender(S):"m";
   return {id:PID++,name:nameFor(g,usedNames(S))+" "+pick(surnamePool()),gender:g,age:36+rand(24),
     kind:kk.id,label:kk.label,bloc:kk.bloc,trait:rollTrait(),alive:true,job:null};
 }
@@ -263,11 +375,25 @@ function roleEligible(S){
   return S.family.filter(p=>p.alive&&p.age>=16&&!p.job&&p.rel!=="former"&&(!h||p.id!==h.id)
     &&["child","sibling","uncle","nephew","grandchild"].includes(p.rel));
 }
+function matchNeed(S){
+  /* what a marriage could be FOR, this year, in this realm */
+  const out=[];
+  const worst=Object.keys(S.facs).filter(k=>S.facs[k].present)
+    .sort((a,b)=>S.facs[a].mood-S.facs[b].mood)[0];
+  if(worst&&S.facs[worst].mood<48)out.push({k:"placate",bloc:worst});
+  if(S.treasury<40)out.push({k:"dowry"});
+  if(S.rival)out.push({k:"heal"});
+  if(S.military<40)out.push({k:"arms"});
+  if(!out.length)out.push({k:"plain"});
+  return out;
+}
 function matchCandidates(S,p){
   const key="m"+p.id;
   if(S._matchC&&S._matchC.key===key) return S._matchC.list;
   const sg=p.gender==="m"?"f":"m";
   const used=usedNames(S);
+  const needs=matchNeed(S);
+  const offers=1+rand(3);   /* never nil — a sovereign must be able to act */
   const list=[
     {kind:"foreign",name:nameFor(sg,used),house:pick(housePool()),age:Math.max(16,p.age-5+rand(11)),
      note:"kin of a crown beyond the border",chips:[["down","−14 gold"],["up","+4 Arms"],["up","a friend abroad"]]},
@@ -276,8 +402,26 @@ function matchCandidates(S,p){
     {kind:"love",name:nameFor(sg,used),house:null,age:Math.max(16,p.age-3+rand(7)),
      note:"no house worth the name — but they will not be told no",chips:[["up","+6 Stability"],["up","a fertile and willing marriage"],["fac down","Aristocracy −6"],["down","no alliance"]]}
   ];
-  S._matchC={key,list};
-  return list;
+  /* Terms bend toward whatever the realm is short of, so the same three
+     offers never come round twice. A dowry matters when the treasury is
+     empty and not otherwise. */
+  needs.forEach(n=>{
+    if(n.k==="dowry"){ const f=list.find(x=>x.kind==="foreign");
+      if(f){ f.dowry=true; f.note="kin of a crown beyond the border, and richly dowered";
+        f.chips=[["up","+22 gold"],["up","+3 Arms"],["up","a friend abroad"]]; } }
+    if(n.k==="placate"&&S.facs[n.bloc]){ const d=list.find(x=>x.kind==="domestic");
+      if(d){ d.placate=n.bloc; d.note=`of a house the ${S.facs[n.bloc].name} would follow anywhere`;
+        d.chips=[["fac up",`${S.facs[n.bloc].name} +10`],["fac up","Aristocracy +4"]]; } }
+    if(n.k==="heal"&&S.rival){ const d=list.find(x=>x.kind==="domestic");
+      if(d){ d.heal=true; d.note="of the rival's own house — a claim married rather than fought";
+        d.chips=[["up","the rival claim is settled"],["fac up","Aristocracy +5"],["down","−10 gold"]]; } }
+    if(n.k==="arms"){ const f=list.find(x=>x.kind==="foreign");
+      if(f&&!f.dowry){ f.arms=true; f.note="kin of a crown with regiments to spare";
+        f.chips=[["down","−14 gold"],["up","+11 Arms"],["up","a friend abroad"]]; } }
+  });
+  const trimmed=list.slice(0,Math.max(1,Math.min(3,offers)));
+  S._matchC={key,list:trimmed};
+  return trimmed;
 }
 function renderDynCourt(){
   const h=heirOf(S);
@@ -292,7 +436,7 @@ function renderDynCourt(){
   opts+=unwed.map(p=>`<button class="choice dyn-match" data-dcwed="${p.id}"><div class="cl"><span class="mk">♥</span><span class="lbl">Arrange a match for ${esc(p.name)}, the sovereign's ${esc(relLabel(p))} (${p.age})</span></div>
       <div class="ch">of age, unwed, and watched by every house with a daughter or a son</div>
       <div class="costs"><span class="chip">three suits are pressed</span></div></button>`).join("");
-  if(hasCouncil(S))opts+=ROLES.filter(r=>!roleHolder(S,r.id)).map(r=>`<button class="choice dyn-role" data-dcrole="${r.id}"><div class="cl"><span class="mk">✦</span><span class="lbl">Appoint a ${esc(r.name)}</span></div>
+  if(hasCouncil(S))opts+=ROLES.filter(r=>!roleHolder(S,r.id)).map(r=>`<button class="choice dyn-role" data-dcrole="${r.id}"><div class="cl"><span class="mk">✦</span><span class="lbl">Appoint a ${esc(roleName(S,r))}</span></div>
       <div class="ch">${esc(r.hint)}</div>
       <div class="costs">${Object.keys(r.fac).map(k=>`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`).join("")}<span class="chip">${esc(r.gives)}</span></div></button>`).join("");
   const desig=designatable(S).filter(p=>!h||p.id!==h.id);
@@ -333,12 +477,29 @@ function doMatch(i){
   S._matchFor=null;
   S._celebrate={label:`the wedding of ${p.name}`,turn:S.turn+1};
   let out;
-  if(c.kind==="foreign") out={cost:{gold:-14,arms:+4},fac:{aristocracy:+2},
-    chron:S=>`${p.name} of the royal house wed ${c.name}, kin of the crown of House ${c.house}.`,
-    out:`A wedding of state. Two realms are joined at the altar, whatever they may do to each other later.`};
-  else if(c.kind==="domestic") out={fac:{aristocracy:+7},
-    chron:S=>`${p.name} of the royal house wed ${c.name} of House ${c.house}, of the realm's own great blood.`,
-    out:`Old blood binds closer to the crown. One great house is now family — and behaves accordingly, for good and ill.`};
+  if(c.kind==="foreign"){
+    if(c.dowry) out={cost:{gold:+22,arms:+3},fac:{aristocracy:+2,merchants:+3},
+      chron:S=>`${p.name} of the royal house wed ${c.name} of House ${c.house}, and the dowry came in waggons.`,
+      out:`A wedding of state, and a solvent one. The chests are carried in publicly, which is the point of a dowry — everyone must see that the crown has been paid.`};
+    else if(c.arms) out={cost:{gold:-14,arms:+11},fac:{aristocracy:+2,officers:+4},
+      chron:S=>`${p.name} of the royal house wed ${c.name}, kin of a crown with regiments to spare.`,
+      out:`A wedding of state, and the bride's father sends soldiers with her. Alliances of this kind are worth exactly as long as both parties still need them.`};
+    else out={cost:{gold:-14,arms:+4},fac:{aristocracy:+2},
+      chron:S=>`${p.name} of the royal house wed ${c.name}, kin of the crown of House ${c.house}.`,
+      out:`A wedding of state. Two realms are joined at the altar, whatever they may do to each other later.`};
+  }
+  else if(c.kind==="domestic"){
+    if(c.heal&&S.rival) out={cost:{gold:-10},fac:{aristocracy:+5},
+      effect:S2=>{ S2.rival=null; S2.stability=clamp(S2.stability+5); },
+      chron:S=>`${p.name} of the royal house wed ${c.name} of the rival's own house, and a claim that might have been fought over was married instead.`,
+      out:`The contract is signed and the claim dissolves into the family. Cheaper than a war and considerably more humiliating for everyone involved, which is why it works.`};
+    else if(c.placate&&S.facs[c.placate]) out={fac:Object.assign({aristocracy:+4},{[c.placate]:+10}),
+      chron:S=>`${p.name} of the royal house wed ${c.name} of House ${c.house}, and the ${S.facs[c.placate].name} took it as the compliment it was.`,
+      out:`A marriage aimed squarely at the estate that has been hardest to hold. They understand the gesture perfectly, and are pleased anyway.`};
+    else out={fac:{aristocracy:+7},
+      chron:S=>`${p.name} of the royal house wed ${c.name} of House ${c.house}, of the realm's own great blood.`,
+      out:`Old blood binds closer to the crown. One great house is now family — and behaves accordingly, for good and ill.`};
+  }
   else { sp.love=true; p.love=true;
     out={cost:{stability:+6},fac:{aristocracy:-6,peasantry:+4},
     chron:S=>`${p.name} of the royal house married ${c.name} for no reason of state whatever, and the realm rather enjoyed it.`,
@@ -347,22 +508,19 @@ function doMatch(i){
 }
 function renderRolePick(){
   const r=ROLES.find(x=>x.id===S._rolePick); if(!r){toDynCourt();return "";}
-  const free=courtiers(S).filter(c=>!c.job);
-  const elig=roleEligible(S).sort((a,b)=>b.age-a.age);
-  return `<div class="eyebrow">An office of the realm</div><div class="sit-title">${esc(r.name)}</div>
-    <div class="sit-text">${esc(r.hint)}. The council has names to put forward — and the sovereign may always prefer their own blood, which is a different kind of decision.</div>
-    <div class="subhead">Servants of the state</div>
-    <div class="choices">${free.map(c=>{const t=traitShown(c);
-      return `<button class="choice dyn-role" data-rolewho="c${c.id}">
-        <div class="cl"><span class="mk">›</span><span class="lbl">${esc(c.name)}, ${c.age} — ${esc(c.label)}</span></div>
-        <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):"an unremarkable record and no enemies"}</div>
-        <div class="costs">${Object.keys(r.fac).map(k=>`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`).join("")}<span class="chip fac up">${esc(S.facs[c.bloc].name)} +4</span><span class="chip up">no claim on the throne</span></div></button>`;}).join("")}</div>
-    ${elig.length?`<div class="subhead">Of the blood</div>
-    <div class="choices">${elig.map(p=>{const t=traitShown(p);
-      return `<button class="choice dyn-desig" data-rolewho="${p.id}">
-        <div class="cl"><span class="mk">✦</span><span class="lbl">${esc(p.name)}, the sovereign's ${esc(relLabel(p))} (${p.age})</span></div>
-        <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):"nothing much is known of them yet"}</div>
-        <div class="costs">${Object.keys(r.fac).map(k=>`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`).join("")}<span class="chip up">the dynasty is pleased</span><span class="chip down">a relative with a power base</span></div></button>`;}).join("")}</div>`:""}
+  const field=officeField(S,r.id);
+  const servants=field.filter(c=>!c.royal), blood=field.filter(c=>c.royal);
+  const card=(c)=>{const t=traitShown(c); const b=skillBand(c.skill==null?50:c.skill);
+    const who=c.royal?`${esc(c.name)}, the sovereign's ${esc(relLabel(c)||"kin")} (${c.age})`
+                     :`${esc(c.name)}, ${c.age} — ${esc(c.label)}`;
+    return `<button class="choice ${c.royal?"dyn-desig":"dyn-role"}" data-rolewho="${c.royal?c.id:"c"+c.id}">
+      <div class="cl"><span class="mk">${c.royal?"✦":"›"}</span><span class="lbl">${who}</span></div>
+      <div class="ch">${t?(t.sure?`known to be ${esc(t.text.toLowerCase())}`:`said to be ${esc(t.text)}`):(c.royal?"nothing much is known of them yet":"an unremarkable record and no enemies")}</div>
+      <div class="costs"><span class="chip ${b.cls}">${esc(b.label)} at ${esc(r.dom==="martial"?"soldiering":r.dom==="fiscal"?"money":r.dom==="faith"?"the pulpit":r.dom==="law"?"the law":"administration")}</span>${Object.keys(r.fac).map(k=>S.facs[k]?`<span class="chip fac up">${S.facs[k].name} +${r.fac[k]}</span>`:"").join("")}${c.royal?`<span class="chip up">the dynasty is pleased</span><span class="chip down">a relative with a power base</span>`:`<span class="chip fac up">${esc((S.facs[c.bloc]||{name:"the council"}).name)} +4</span><span class="chip up">no claim on the throne</span>`}</div></button>`;};
+  return `<div class="eyebrow">An office of state</div><div class="sit-title">${esc(roleName(S,r))}</div>
+    <div class="sit-text">${esc(r.hint)}. These are the names that can be got for this post, this year — a different post would bring different men, and a good one is not always among them.</div>
+    ${servants.length?`<div class="subhead">Servants of the state</div><div class="choices">${servants.map(card).join("")}</div>`:""}
+    ${blood.length?`<div class="subhead">Of the blood</div><div class="choices">${blood.map(card).join("")}</div>`:""}
     <div class="choices"><button class="choice" data-dc="back"><div class="cl"><span class="mk">›</span><span class="lbl">Leave the office vacant</span></div></button></div>`;
 }
 function doRole(id,who){
@@ -370,12 +528,20 @@ function doRole(id,who){
   if(!r){toDynCourt();return;}
   const isCourt=(typeof who==="string"&&who.charAt(0)==="c");
   const wid=isCourt?parseInt(who.slice(1),10):who;
+  const field=officeField(S,r.id);
   const elig=roleEligible(S);
-  const p=isCourt?courtiers(S).find(x=>x.id===wid)
+  const chosen=field.find(x=>x.id===wid&&(isCourt?!x.royal:!!x.royal));
+  const p=isCourt?(field.find(x=>x.id===wid&&!x.royal)||courtiers(S).find(x=>x.id===wid))
     :((wid!=null?elig.find(x=>x.id===wid):null)||elig.sort((a,b)=>b.age-a.age)[0]);
   if(!p){toDynCourt();return;}
+  /* the competence the player was shown is the competence they get */
+  if(chosen&&chosen.skill!=null)p.skill=chosen.skill;
+  else if(p.skill==null)p.skill=rollSkill(S,p,r.dom);
+  if(S._offField)delete S._offField[r.id];
   if(isCourt){
     p.job=r.id;
+    if(!S.court)S.court=[];
+    if(!S.court.some(x=>x.id===p.id))S.court.push(p);
     const fx=Object.assign({},r.fac); fx[p.bloc]=(fx[p.bloc]||0)+4;
     let extra="";
     if(r.id==="governor"){
@@ -383,8 +549,12 @@ function doRole(id,who){
       if(target){ target.governor=p.id; target.loyalty=clamp(target.loyalty+6);
         extra=` ${p.name} takes ship for ${target.name} within the month.`; }
     }
-    applyOutcome({cost:{stability:+2},fac:fx,chron:S=>`${p.name} was appointed ${r.name}.`,
-      out:`${p.name} — ${p.label} — takes up the ${r.name}.${extra} A competent servant with no blood claim and no ambition the crown need fear. This is what a council is for.`},"dyncourt");
+    const bnd=skillBand(p.skill);
+    applyOutcome({cost:{stability:p.skill>=42?+2:-1},fac:fx,chron:S=>`${p.name} was appointed ${roleName(S,r)}.`,
+      out:`${p.name} — ${p.label} — takes up the ${roleName(S,r)}.${extra} ${p.skill>=62
+        ?"A genuinely able servant with no blood claim and no ambition the government need fear. This is what a council is for."
+        :p.skill>=42?"Adequate, unexciting, and unlikely to embarrass anyone. Most of government is this."
+        :`The office is filled, which is not the same as the office being done. ${p.name} is ${bnd.label}, and everyone in the room knows it.`}`},"dyncourt");
     render(); return;
   }
   p.job=r.id;
@@ -510,11 +680,12 @@ function endTurn(){
   if(S.treasury<=-200){S.treasury=-120;S.privileges=Math.max(0,S.privileges-2);S.military=clamp(S.military-8);S.facs.merchants.mood=clamp(S.facs.merchants.mood-8);S.chronicle.push({year:S.year,cls:'rupture',text:'In '+S.year+', the Crown of '+S.nation+' defaulted upon its debts; creditors were ruined, privileges revoked, and regiments disbanded to stanch the bleeding.'});}
   if(S.facs.aristocracy.mood<30||S.facs.peasantry.mood<28)S.stability=clamp(S.stability-4);
   if(S.rival)S.stability=clamp(S.stability-2);
+  officeUpkeep(S);
   // births
   maybeBirth(span);
   // deaths in the family + monarch mortality
   rollDeaths(span);
-  if(S._abdicate){ S._abdicate=false; S.monarch.alive=false; }
+  if(S._abdicate){ S._abdicate=false; S._abdicated=true; }
   if(S.pm){ S.pm.age+=span;
     if(chance(mortalityChance(S.pm.age,span))){ const old=S.pm.holder;
       S.pm.holder=pmName(); S.pm.age=44+rand(16);
@@ -522,8 +693,8 @@ function endTurn(){
       S.notices.push(`${old}, the ${S.pm.office}, has died in office. ${S.pm.holder} now holds the seals of government.`);
     } }
   checkMilestones();
-  // next turn begins — unless the monarch died (succession phase pending)
-  if(!S.monarch.alive){
+  // next turn begins — unless the monarch died, or laid the crown down
+  if(!S.monarch.alive||S._abdicated){
     /* only a crown has a succession; everything else has a procedure */
     if(!isMonarchy(S)){ succeedNonMonarch(S); render(); return; }
     S.phase="succession"; return; }
@@ -536,13 +707,21 @@ function maybeBirth(span){
   const sp=spouseOf(S);
   if(sp){
     const bearer=(S.monarch.gender==="f")?S.monarch.age:sp.age;
-    if(bearer>=17&&bearer<=45){
-      const kids=S.family.filter(p=>p.rel==="child"&&p.alive).length;
-      const p=Math.min(0.85, span*0.16*(kids<2?1.4:kids<4?1:0.5)*(S.monarch.love?1.3:1));
-      if(chance(p)){
+    if(bearer>=17&&bearer<=47){
+      /* Three chances in a five-year turn, because that is what five years
+         of an early-modern marriage looks like. The penalty for a full
+         nursery does not bite until seven living children — before
+         inoculation, half of them will not see ten. */
+      let born=0;
+      for(let attempt=0;attempt<3;attempt++){
+        const kids=S.family.filter(p=>p.rel==="child"&&p.alive).length;
+        const load=kids<3?1:kids<7?0.8:0.45;
+        const late=bearer>40?0.55:1;
+        const p=Math.min(0.72, span*0.11*load*late*(S.monarch.love?1.25:1));
+        if(!chance(p))continue;
         const g=chance(0.5)?"m":"f";
         const c=makePerson(S,"child",g,0,null,[S.monarch.id,sp.id]);
-        S.family.push(c);
+        S.family.push(c); born++;
         S.chronicle.push({year:S.year,text:`In ${S.year}, a ${g==="m"?"son":"daughter"}, ${c.name}, was born to ${styled(S,S.monarch)}.`});
         S.notices.push({t:"b",name:c.name,g:g});
         S._celebrate={label:`the birth of ${c.name}`,turn:S.turn+1};
@@ -554,7 +733,7 @@ function maybeBirth(span){
     const bearer=(c.gender==="f")?c.age:cs.age;
     if(bearer<17||bearer>45)return;
     const kd=S.family.filter(x=>x.parents&&x.parents.includes(c.id)&&x.alive).length;
-    if(chance(Math.min(0.3, span*0.07*(kd<2?1:0.4)))){
+    if(chance(Math.min(0.55, span*0.09*(kd<4?1:0.5)))){
       const g=chance(0.5)?"m":"f";
       const nc=makePerson(S,c.rel==="sibling"?"nephew":"kin",g,0,null,[c.id,cs.id]);
       S.family.push(nc);

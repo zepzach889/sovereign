@@ -92,6 +92,13 @@ function prerogState(S,id){
    governments in one country, arguing. Below 50 the desk moves, the
    crown becomes an NPC, and its leftover prerogatives point at you.
    ===================================================================== */
+/* When a disputed crown stops being settled by armies. Not a date: a
+   condition. A standing army answerable to the state, or a charter that
+   writes the succession down, and the private war goes out of fashion. */
+function warClosed(S){
+  if(eraIdx(S)>=5)return true;
+  return !!S.gov.charter&&eraIdx(S)>=3;
+}
 function pmGoverns(S){ return isMonarchy(S)&&!!S.pm&&(S.gov.crown.power|0)<50; }
 function crownAppointsPm(S){ return isMonarchy(S)&&(S.gov.crown.power|0)>=70; }
 function pmContested(S){ const p=S.gov.crown.power|0; return isMonarchy(S)&&p>=50&&p<70; }
@@ -143,7 +150,8 @@ function costMod(S,id){
 }
 function adjCost(S,a){
   const c=Object.assign({},a.cost||{});
-  const m=costMod(S,a.id);
+  let m=costMod(S,a.id);
+  if(typeof officeCostMod==="function")m*=officeCostMod(S,a.id);
   if(c.gold&&c.gold<0)c.gold=Math.round(c.gold*m);
   return c;
 }
