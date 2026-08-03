@@ -21,9 +21,39 @@ function newFactions(){
     reformers:{name:"Reformers",strength:0,mood:50,present:false},
   };
 }
-const composition={ nobility:["aristocracy","clergy"], commons:["merchants","peasantry"], broad:["merchants","peasantry","provinces"],
-  national:["aristocracy","clergy","merchants","peasantry","provinces","officers","workers","reformers"] };
-function compMood(S,comp){ const ks=composition[comp]||["aristocracy"]; let s=0; ks.forEach(k=>s+=S.facs[k].mood); return s/ks.length; }
+/* Provinces are no longer an estate — they are places, with loyalty of
+   their own, and counting them twice was flattering nobody. Officers sit
+   with the aristocracy in the upper house, where they were, rather than
+   in a commons they had no business in for another two centuries. */
+const composition={ nobility:["aristocracy","clergy","officers"], commons:["merchants","peasantry"],
+  broad:["merchants","peasantry","workers"],
+  national:["aristocracy","clergy","merchants","peasantry","officers","workers","reformers"] };
+
+const FRANCHISE=[
+  {id:"property", name:"a property franchise", w:{merchants:1,peasantry:0.2,workers:0},
+   blurb:"the vote runs with land and trade — the top layer of the country, and no further"},
+  {id:"widened",  name:"a widened franchise",  w:{merchants:1,peasantry:0.5,workers:0.15},
+   blurb:"tenants and small holders admitted; the counties stop being pocket boroughs"},
+  {id:"broad",    name:"a broad franchise",    w:{merchants:1,peasantry:0.75,workers:0.75},
+   blurb:"the towns come in — the men who work the mills now count, nearly"},
+  {id:"universal",name:"universal suffrage",   w:{merchants:1,peasantry:1,workers:1},
+   blurb:"every adult of the realm, counted the same"}
+];
+function franchiseIdx(S){ const i=FRANCHISE.findIndex(f=>f.id===(S.franchise||"property")); return i<0?0:i; }
+function franchiseDef(S){ return FRANCHISE[franchiseIdx(S)]; }
+function franchiseWeight(S,k,comp){
+  if(comp==="nobility")return 1;                       /* the lords are not elected */
+  const w=franchiseDef(S).w;
+  return (w[k]!=null)?w[k]:1;
+}
+function compMood(S,comp){
+  const ks=composition[comp]||["aristocracy"];
+  let s=0,tot=0;
+  ks.forEach(k=>{ if(!S.facs[k]||!S.facs[k].present)return;
+    const w=franchiseWeight(S,k,comp); s+=S.facs[k].mood*w; tot+=w; });
+  if(!tot)return 50;
+  return s/tot;
+}
 
 /* ---------- power & consent ---------- */
 function rightsHeld(S){ const r=new Set(); S.gov.institutions.forEach(i=>i.rights.forEach(x=>r.add(x))); return r; }
@@ -180,8 +210,13 @@ function runElection(){
   if(!set.size)set.add("aristocracy");
   const live=[...set].filter(k=>S.facs[k]&&S.facs[k].present);
   const use=live.length?live:[...set];
+  /* the weight of each interest at the polls is the weight the franchise
+     gives it — which is the whole point of widening one */
+  const comps=new Set(); S.gov.institutions.forEach(i=>comps.add(i.composition));
+  const wOf=k=>{ let best=0; comps.forEach(c=>{ if((composition[c]||[]).indexOf(k)>=0)best=Math.max(best,franchiseWeight(S,k,c)); }); return best||1; };
   const standings=use.map(k=>{
-    const base=S.facs[k].mood*0.6+S.facs[k].strength*0.4;
+    const fw=wOf(k);
+    const base=(S.facs[k].mood*0.6+S.facs[k].strength*0.4)*(0.35+0.65*fw);
     const swing=rand(18);
     return {k,name:S.facs[k].name,mood:S.facs[k].mood,strength:S.facs[k].strength,
             base:Math.round(base),swing,score:Math.round(base+swing)};
@@ -201,21 +236,96 @@ function regimeLabel(S){
   if(cp<40) return "Constitutional Monarchy";
   return "Parliamentary Monarchy";
 }
-function legitimacy(S){
-  const clergy=S.facs.clergy.mood, aristo=S.facs.aristocracy.mood;
+/* =====================================================================
+   LEGITIMACY
+   One formula for four governments was the deepest flaw in this game. It
+   asked every regime how its clergy were feeling and whether the crown
+   had a clear heir — so a people's republic, having abolished both, could
+   not exceed about 39 however well it governed, and legitimacy below 45
+   is the single largest driver of every pressure. That is the whole
+   instability loop, written down.
+
+   A government is legitimate on the terms it claims for itself. A crown
+   claims descent and divine sanction. A republic claims consent freely
+   given and honoured. A people's republic claims delivery. A junta claims
+   nothing at all, which is why it cannot get above a certain line and
+   never could.
+   ===================================================================== */
+function legitMonarchy(S){
   const succ=(S.law==="elective")?58:(heirOf(S)?76:34);
-  let v=0.30*clergy+0.24*aristo+0.34*succ+(S.gov.charter?6:0)+(S.facs.peasantry.mood-50)*0.12;
+  let v=0.28*S.facs.clergy.mood+0.22*S.facs.aristocracy.mood+0.32*succ
+       +(S.gov.charter?7:0)+(S.facs.peasantry.mood-50)*0.12;
+  /* a crown that reigns without ruling is not a weak crown; it is the most
+     durable arrangement anyone has yet found, and the formula should say so */
+  const p=S.gov.crown.power|0;
+  if(S.gov.institutions.length&&p<50) v+=Math.min(16,(50-p)*0.32);
   if(S.regency) v-=10;
-  v-=(S.legitPen||0);
+  return v;
+}
+function legitRepublic(S){
+  const r=S.rep||{};
+  const since=Math.max(0,(S.turn||0)-(S._lastElection||0));
+  const fresh=Math.max(0,26-since*7);                 /* a recent, honoured election */
+  const clean=Math.max(0,22-(r.entrench||0)*11);      /* and one that meant something */
+  const courts=(S.gov.charter?12:0)+(rightsHeld(S).has("law")?8:0);
+  const consent=(S.gov.institutions.reduce((a,i)=>a+i.power,0))*0.25;
+  const breadth=franchiseIdx(S)*5;
+  const country=(compMood(S,"commons")-50)*0.22;
+  return 16+fresh+clean+courts+consent+breadth+country;
+}
+function legitPeople(S){
+  const pl=S.plan||{};
+  const consumer=(pl.consumer!=null)?pl.consumer:33;
+  const deliver=Math.max(0,32-Math.abs(48-consumer)*0.85);   /* shops with goods in them */
+  const unity=Math.max(0,18-(S._purges||0)*6);
+  const party=((S.facs.workers&&S.facs.workers.present)?S.facs.workers.mood:S.facs.peasantry.mood);
+  const written=(S.gov.charter?10:0)+(S.gov.institutions.length?8:0);
+  return 12+deliver+unity+party*0.28+written;
+}
+function legitJunta(S){
+  /* A provisional government cannot be legitimate. It can only be tolerated,
+     and only for so long. The one road upward is to stop being provisional. */
+  const j=S.junta||{};
+  let v=18+(j.promised?14:0)+(S.stability-45)*0.22+(S.facs.officers.mood-50)*0.18;
+  v-=Math.min(18,(j.years||0)*1.5);
+  return Math.min(JUNTA_CEILING,v);
+}
+const JUNTA_CEILING=50;
+function legitimacyRaw(S){
+  if(regimeIs(S,"republic"))return legitRepublic(S);
+  if(regimeIs(S,"people"))return legitPeople(S);
+  if(regimeIs(S,"junta"))return legitJunta(S);
+  return legitMonarchy(S);
+}
+function legitimacy(S){
+  let v=legitimacyRaw(S)-(S.legitPen||0);
+  if(regimeIs(S,"junta"))v=Math.min(JUNTA_CEILING,v);
   return clamp(v);
 }
+/* what the reading is actually made of — so the player can act on it */
 function legitSources(S){
-  const bits=[];
-  bits.push(S.facs.clergy.mood>=55?"divine favour":"the faith wavers");
-  if(S.law==="elective") bits.push("an elective crown");
-  else bits.push(heirOf(S)?"a clear succession":"no clear heir");
-  if(S.regency) bits.push("a regency governs");
-  return bits.join(" · ");
+  const out=[];
+  if(regimeIs(S,"republic")){
+    const since=Math.max(0,(S.turn||0)-(S._lastElection||0));
+    out.push(since<=2?"a recent election":"an election long past");
+    if((S.rep&&S.rep.entrench)||0)out.push("a ballot nobody quite believes");
+    if(S.gov.charter)out.push("a written constitution");
+    if(franchiseIdx(S)>=2)out.push("a broad franchise");
+  } else if(regimeIs(S,"people")){
+    const c=(S.plan&&S.plan.consumer!=null)?S.plan.consumer:33;
+    out.push(Math.abs(48-c)<12?"shops with goods in them":"queues, and explanations");
+    if((S._purges||0)>0)out.push("a Party that eats its own");
+    if(S.gov.charter)out.push("a constitution of sorts");
+  } else if(regimeIs(S,"junta")){
+    out.push(S.junta&&S.junta.promised?"a promise of elections":"no answer to the question");
+    out.push("a ceiling no provisional government clears");
+  } else {
+    if(heirOf(S))out.push("a clear succession"); else out.push("no settled heir");
+    if(S.facs.clergy.mood>=60)out.push("divine favour");
+    if(S.gov.charter)out.push("a charter kept");
+    if(S.gov.institutions.length&&(S.gov.crown.power|0)<50)out.push("a crown that reigns without ruling");
+  }
+  return out.join(" · ");
 }
 
 /* =====================================================================
@@ -232,6 +342,8 @@ function clearRegimeState(S,to){
   S.regency=null; S._minority=false; S.designated=null; S.rival=null;
   S._regentPick=null; S._rolePick=null;
   if(to!=="monarchy"){ S.pm=null; S._pmPending=false; }
+  /* a bill does not survive the chamber that passed it */
+  S._bill=null; S._lastBill=-99; S._sitting=false;
 
   /* the outgoing regime's own organs */
   if(to!=="republic"){ S.rep=null; S.pols=null; S.civilPick=null; }

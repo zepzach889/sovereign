@@ -50,6 +50,7 @@ function proceedToElection(first){
 function esc0(x){ return String(x==null?"":x); }
 function afterElection(){
   const er=S._electionResult; S._elections=(S._elections||0)+1;
+  S._lastElection=S.turn;
   S.nextElection=S.turn+electionEvery(S);
   S._electionResult=null;
   if(!S.pm||!er){ checkMilestones(); rollEvent(false); render(); return; }
@@ -234,6 +235,8 @@ function toDynastic(){
   }
   if(regimeIs(S,"republic")){ toConvention(); return; }
   if(regimeIs(S,"people")){ toCongress(); return; }
+  maybeBill(S);
+  if(S._bill){ S.phase="session"; render(); return; }
   const beat=dynasticBeat();
   if(beat){ S.dyn=beat; S.phase="dynastic"; render(); return; }
   toDynCourt();
@@ -303,6 +306,55 @@ function doHeirAge(kind){
   applyOutcome(out,"dyncourt"); render();
 }
 function toDynCourt(){ S.dyn=null; S.result=null; S.phase="dyncourt"; render(); }
+
+/* =====================================================================
+   THE SESSION
+   Once a chamber sits, it does what chambers do: it passes things and
+   sends them up. This is what "withhold assent" was always supposed to
+   be pointed at.
+   ===================================================================== */
+function maybeBill(S){
+  if(S._bill)return;
+  if(!S.gov.institutions.length)return;
+  if(typeof chamberSitting==="function"&&!chamberSitting(S))return;
+  if((S.turn-(S._lastBill||-99))<2)return;
+  if(!chance(0.55))return;
+  const pair=chamberBill(S); if(!pair)return;
+  S._bill=pair; S._lastBill=S.turn;
+}
+function doBill(kind){
+  if(S.phase!=="session")return;
+  const pair=S._bill; S._bill=null;
+  if(!pair){ afterDynastic(); return; }
+  const b=(kind==="opp"&&pair.opp)?pair.opp:pair.main;
+  let out;
+  if(kind==="refuse"){
+    /* the crown says no. Which it may, while it still can. */
+    const m=pair.main;
+    (composition[(S.gov.institutions[0]||{}).composition]||[]).forEach(k=>{
+      if(S.facs[k])S.facs[k].mood=clamp(S.facs[k].mood-5); });
+    if(S.facs[m.bloc])S.facs[m.bloc].mood=clamp(S.facs[m.bloc].mood-9);
+    S.stability=clamp(S.stability-4);
+    S.legitPen=(S.legitPen||0)+4;
+    bumpPressure(S,"constitutional",8);
+    S._assents=(S._assents||0)+1;
+    if(S._assents>=3&&typeof spendPrerog==="function"){ spendPrerog(S,"assent");
+      S.notices.push("The veto is spent. Refused three times, a right stops being a right and becomes a quarrel — and this one is over."); }
+    out={chron:S2=>`${crownWord(S2)} withheld assent from ${m.title}, and the bill died on the table.`,
+      out:`${m.title} does not become law. The benches take the lesson, which is that the only thing between them and the country's business is one person — and persons can be worked around.`};
+  } else if(kind==="none"){
+    S.stability=clamp(S.stability-2);
+    out={chron:S2=>`the session rose without passing ${pair.main.title}, and nobody pretended it was an accident.`,
+      out:"The session rises. Nothing is passed, nothing is refused, and everybody understands perfectly."};
+  } else {
+    applyBill(S,b);
+    const other=(b===pair.main)?pair.opp:pair.main;
+    if(other&&S.facs[other.bloc])S.facs[other.bloc].mood=clamp(S.facs[other.bloc].mood-6);
+    out={chron:S2=>`${b.title} passed the ${S2.gov.institutions[0]?S2.gov.institutions[0].name:"chamber"} and received assent.`,
+      out:`${b.title} is law. ${b===pair.main?"The interest that carried the chamber has been given what it came for.":"The government took the opposition's bill instead of its own — which is either statesmanship or surrender, and will be called both."}`};
+  }
+  applyOutcome(out,"dyncourt"); render();
+}
 
 /* =====================================================================
    THE OFFICES OF STATE
@@ -553,8 +605,14 @@ function renderDynCourt(){
   /* You arrange matches for the sovereign, the heir, and the sovereign's
      own children. Everyone else's wedding happens without you and turns up
      in the chronicle, which is how it actually worked. */
+  /* When the crown is held by an old man, the grandchildren ARE the
+     succession, and a court in that position spent most of its energy
+     getting them married. Only children and siblings were ever offered a
+     match, so a granddaughter of twenty-five could sit unwed until she was
+     past bearing and the line had to be adopted into. */
+  const _h=heirOf(S);
   const unwed=S.family.filter(p=>p.alive&&p.age>=16&&p.age<=55&&!p.spouseId&&!p.outHouse&&!p.cadet
-    &&["child","sibling"].includes(p.rel));
+    &&(["child","sibling","grandchild"].includes(p.rel)||(_h&&p.id===_h.id)));
   const elig=roleEligible(S);
   let opts="";
   if(!spouseOf(S)&&S.monarch.age>=16&&!S.regency)
@@ -845,6 +903,24 @@ function endTurn(){
       }
     }
   });
+  /* what the country is currently demanding, as against what you might
+     think to do unprompted */
+  if(S.facs.reformers&&S.facs.reformers.present){
+    if(!S.gov.charter)askReform(S,"charter",1);
+    askReform(S,"curtail",1);
+    if(S.gov.institutions.some(i=>i.composition==="commons"))askReform(S,"franchise",1);
+  }
+  if((S._commonsDismissed||0)>=2)askReform(S,"lower_house",1);
+  if(typeof pressureOf==="function"&&pressureOf(S,"radical")>=72){
+    askReform(S,"franchise",2); askReform(S,"charter",2);
+  }
+  /* the provinces are places, not an estate. Their "mood" is now simply the
+     average loyalty of the country, so the two are one number instead of two
+     that could disagree. */
+  if(S.facs.provinces){
+    const ps=provinces(S);
+    if(ps.length)S.facs.provinces.mood=clamp(ps.reduce((a,p)=>a+p.loyalty,0)/ps.length);
+  }
   officeUpkeep(S);
   // births
   maybeBirth(span);

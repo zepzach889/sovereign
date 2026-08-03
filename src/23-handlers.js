@@ -83,6 +83,7 @@ function wire(){
   document.querySelectorAll("[data-pmoffer]").forEach(b=>b.onclick=()=>{b.dataset.pmoffer==="accept"?doPmAccept():doPmRefuse();});
   const sg=document.getElementById("seatGo");if(sg)sg.onclick=()=>doSeatShift();
   document.querySelectorAll("[data-heirage]").forEach(b=>b.onclick=()=>doHeirAge(b.dataset.heirage));
+  document.querySelectorAll("[data-bill]").forEach(b=>b.onclick=()=>doBill(b.dataset.bill));
   const ct=document.getElementById("cadTog");
   if(ct)ct.onclick=()=>{S.ui=S.ui||{};S.ui.cadetsOpen=!S.ui.cadetsOpen;render();};
   document.querySelectorAll("[data-elecevery]").forEach(b=>b.onclick=()=>{
@@ -160,23 +161,30 @@ function startReform(id){
     S.result={out:"The Crown refuses assent. While the throne keeps this much of its power, its veto is real — pare it further, or wait for a more pliant sovereign.",fortune:"bad",next:"dynastic"};
     S.phase="outcome";S.openReform=null;render();return;
   }
+  const boonLine=(rr)=>{ const b=applyReformBoon(S,rr); if(!b)return "";
+    if(b.tier==="duress")return "\n\nIt was not given. It was taken — and the realm will remember which.";
+    if(b.tier==="petition")return "\n\nAsked for, and granted. Half the credit of a thing done unprompted, which is still more than none.";
+    return "\n\nDone before anyone demanded it. That is worth more than the statute itself, and the realm knows it."; };
   if(r.noName){
     const line=r.enact(S,power);maybeTransform(S);S._reforms++;
+    const bl=boonLine(r);
     S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, ${line}`});
-    S.result={out:"The statute passes, and the architecture of power shifts within the chambers themselves.",fortune:null,next:"dynastic"};
+    S.result={out:"The statute passes, and the architecture of power shifts within the chambers themselves."+bl,fortune:null,next:"dynastic"};
     checkMilestones();S.phase="outcome";S.openReform=null;S._reformSrc=null;S._reformDest=null;render();return;
   }
   if(r.lawPick){
     const law=S._reformLaw||Object.keys(LAWS).filter(l=>l!==S.law)[0];
     const line=r.enact(S,0,law);maybeTransform(S);S._reforms++;
+    const bl=boonLine(r);
     S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, ${line}`});
-    S.result={out:`The law of succession is remade. The court recalculates every ambition in the realm by nightfall.`,fortune:null,next:"dynastic"};
+    S.result={out:`The law of succession is remade. The court recalculates every ambition in the realm by nightfall.`+bl,fortune:null,next:"dynastic"};
     checkMilestones();S.phase="outcome";S.openReform=null;render();return;
   }
   S.pending={title:`Establish: ${r.name}`,blurb:r.blurb,suggest:r.nameSuggest,
     done:(name)=>{const line=r.enact(S,power,name);maybeTransform(S);S._reforms++;
+      const bl=boonLine(r);
       S.chronicle.push({year:S.year,cls:"mstone",text:`In ${S.year}, ${line}`});
-      S.result={out:`The ${name} is established. You have reshaped what your throne is — and what you can do from it.`,fortune:null,next:"dynastic"};
+      S.result={out:`The ${name} is established. You have reshaped what your throne is — and what you can do from it.`+bl,fortune:null,next:"dynastic"};
       checkMilestones();S.phase="outcome";S.openReform=null;S._reformPower=null;}};
   S.phase="naming";render();
 }

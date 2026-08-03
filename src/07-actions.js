@@ -57,18 +57,6 @@ const ACTIONS=[
       return {cost:{gold:+6,stability:-3},fac:{aristocracy:-2},chron:S=>`the ${c.inst.name} refused the Crown's request, and only a thin, grudging sum was raised.`,
         out:"The chamber is in no mood to be generous. A fraction of the ask — and a lecture besides."};
     }},
-  { id:"assent",label:"Withhold assent",cool:3,
-    hint:"the chamber has passed it; the crown declines to make it law",
-    gain:"the bill dies — and so does a little of the crown's remaining credit",
-    cost:{stability:-5},requires:S=>hasPrerog(S,"assent")&&chamberSitting(S),
-    resolve:S=>{ const fx={}; (composition[S.gov.institutions[0].composition]||[]).forEach(k=>{fx[k]=-7;});
-      return {cost:{stability:-5},fac:fx,
-        effect:S2=>{ S2.legitPen=(S2.legitPen||0)+5; bumpPressure(S2,"constitutional",9);
-          S2._assents=(S2._assents||0)+1;
-          if(S2._assents>=3){ spendPrerog(S2,"assent");
-            S2.notices.push("The veto is spent. A right used three times against a chamber that keeps returning is not a right; it is a quarrel, and this one is over."); } },
-        chron:S2=>`the ${crownWord(S2)} withheld its assent, and the bill died on the table.`,
-        out:"It does not become law. The benches take the lesson — which is that the thing standing between them and the country's business is one person, and persons can be worked around."};}},
   { id:"peers",label:"Create peers",cool:4,
     hint:"the upper house can always be made larger, and the new men will remember who made them",
     gain:"the upper chamber bends toward the crown",
@@ -87,6 +75,58 @@ const ACTIONS=[
       effect:S2=>{S2.legitPen=Math.max(0,(S2.legitPen||0)-3);},
       chron:S2=>`the ${crownWord(S2)} pardoned a condemned man, and the realm talked of nothing else for a season.`,
       out:"A signature, a life, and a story that outlives every statute passed this decade. Mercy is cheap and it is remembered — which is exactly why it survived when everything else was taken away."})},
+/* =====================================================================
+   REVENUE
+   Income had two inputs and upkeep had seven, most of which only ratchet.
+   A republic with a chamber holding the purse had no emergency revenue
+   action at all — not a balance problem, a missing item. And there was no
+   way anywhere in the game to spend LESS: you could cut the army by
+   purging officers or by defaulting, and that was the list.
+   ===================================================================== */
+  { id:"grant",label:"Ask the chamber for a grant",cool:2,
+    hint:"an extraordinary appropriation, voted rather than decreed",
+    gain:"money now, at the price of owing them a hearing",
+    cost:{},requires:S=>!isMonarchy(S)&&S.gov.institutions.length>0&&!regimeIs(S,"junta"),
+    resolve:S=>{ const c=consentCheck(S,"tax");
+      if(c.approve)return {cost:{gold:+34,stability:+2},fac:{merchants:+3,aristocracy:+2},
+        effect:S2=>{S2.legitPen=Math.max(0,(S2.legitPen||0)-2);},
+        chron:S2=>`the ${c.inst?c.inst.name:"chamber"} voted the government an extraordinary grant.`,
+        out:"Voted, and voted publicly. Revenue by consent is slower, smaller and enormously sturdier than revenue by decree — nobody riots over a tax they were asked about."};
+      return {cost:{gold:+9,stability:-5},fac:{merchants:-4},
+        effect:S2=>{bumpPressure(S2,"constitutional",7);S2.legitPen=(S2.legitPen||0)+3;},
+        chron:S2=>`the chamber refused the government its grant, and the ministry went away with a ninth of what it asked.`,
+        out:"They will not vote it. A token sum is found to avoid the humiliation of nothing at all, and the government discovers what it is like to need permission."};
+    }},
+  { id:"requisition",label:"Requisition against the plan",cool:2,
+    hint:"take it from the plan's own margin — the shortfall will appear somewhere else",
+    gain:"immediate money, paid for by next year's shelves",
+    cost:{},requires:S=>regimeIs(S,"people"),
+    resolve:S=>({cost:{gold:+30,stability:-4},fac:{workers:-6,peasantry:-5},
+      effect:S2=>{ if(S2.plan){ S2.plan.consumer=Math.max(0,S2.plan.consumer-10); S2.plan.industry=Math.min(100,S2.plan.industry+10); } },
+      chron:S2=>`the Commissariat requisitioned against the plan; the targets held on paper.`,
+      out:"The money is found. It was always going to be found — it was in the consumer allocation, and it is now not. The shelves will explain this to everyone in about two years."})},
+  { id:"retrench",label:"Retrench the state",cool:3,
+    hint:"stand down regiments, revoke sinecures, cut the civil list — cheap in gold, expensive in whoever you cut",
+    gain:"upkeep falls, permanently, and somebody never forgives you",
+    cost:{},requires:S=>upkeep(S)>26,
+    resolve:S=>{ const opts=[];
+      if(S.military>25)opts.push("arms");
+      if(S.privileges>0)opts.push("priv");
+      if((S._armyUpkeep||0)>0)opts.push("standing");
+      const pick=opts.length?pick2(opts):"arms";
+      if(pick==="priv")return {cost:{stability:-6},fac:{aristocracy:-12,merchants:+5,peasantry:+6},
+        effect:S2=>{S2.privileges=Math.max(0,S2.privileges-2);},
+        chron:S2=>`the great houses' sinecures were struck from the roll; the saving was modest and the grudge was not.`,
+        out:"Two rolls of privileges cancelled. The treasury notices at once. So do the families, who have been drawing on them since before anyone can remember, and who will mention it at every opportunity for forty years."};
+      if(pick==="standing")return {cost:{stability:-5},fac:{officers:-14,merchants:+4},
+        effect:S2=>{S2._armyUpkeep=Math.max(0,Math.round((S2._armyUpkeep||0)*0.6));S2.military=clamp(S2.military-6);},
+        chron:S2=>`regiments were stood down and the standing army reduced; the officers took it as a verdict on themselves.`,
+        out:"The permanent establishment is cut back. The books improve immediately. Every officer in the realm now knows the state will choose the ledger over them, and files that away."};
+      return {cost:{stability:-4},fac:{officers:-9,merchants:+5,peasantry:+4},
+        effect:S2=>{S2.military=clamp(S2.military-10);},
+        chron:S2=>`the host was reduced; the realm grew cheaper and considerably less formidable.`,
+        out:"Companies disbanded, garrisons thinned, contracts not renewed. Ten points of arms gone and the upkeep with them — which is a fine trade right up until somebody tests the frontier."};
+    }},
   { id:"summon",label:"Summon the chamber",cool:1,
     hint:"call them, hear the grievances, and ask for the money — which is what they are for",
     gain:"an extraordinary grant, and a constitutional question postponed",

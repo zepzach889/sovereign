@@ -168,7 +168,7 @@ function render(){
     ${councilPanel(S)}
     ${prerogPanel(S)}
   </div>`;
-  const facHtml=Object.keys(S.facs).map(k=>{const f=S.facs[k];
+  const facHtml=Object.keys(S.facs).filter(k=>k!=="provinces").map(k=>{const f=S.facs[k];
     const hue=f.mood>=60?"var(--good)":f.mood>=42?"var(--brass)":"var(--crisis)";
     const txt=f.mood>=72?"devoted":f.mood>=58?"content":f.mood>=44?"uneasy":f.mood>=30?"resentful":"seething";
     const dl=f.present&&f.delta?`<span class="fd ${f.delta>0?"up":"dn"}">${f.delta>0?"▲":"▼"}${Math.abs(f.delta)}</span>`:"";
@@ -205,6 +205,7 @@ function render(){
   else if(S.phase==="terror")main=renderTerror();
   else if(S.phase==="civilpick")main=renderCivil();
   else if(S.phase==="ended")main=renderEnded();
+  else if(S.phase==="session")main=renderSession();
   else if(S.phase==="outcome")main=renderOutcome();
 
   const treasNeg=S.treasury<0?"neg":"";const netCls=net>=0?"net-pos":"net-neg";
@@ -420,6 +421,9 @@ function renderReformCard(r){
     const power=S._reformPower!=null?S._reformPower:r.pdef;
     const lawChoice=S._reformLaw||Object.keys(LAWS).filter(l=>l!==S.law)[0];
     const pv=previewReform(S,r,power,lawChoice);
+    const bl=(typeof reformBoonLine==="function")?reformBoonLine(S,r):"";
+    const tier=(typeof reformTier==="function")?reformTier(S,r):"motion";
+    const boonHtml=bl?`<div class="${tier==="duress"?"lock":"unlock"}">${tier==="duress"?"✕":"✦"} ${esc(bl)}</div>`:"";
     const unlockHtml=pv.unlocks.length?`<div class="unlock">✦ Unlocks: ${pv.unlocks.map(esc).join(", ")}</div>`:"";
     const lockHtml=pv.locks.length?`<div class="lock">✕ Removes: ${pv.locks.map(esc).join(", ")}</div>`:"";
     const rightsHtml=pv.newRights.length?`<div class="neutral">Consent gained over: ${pv.newRights.map(esc).join(", ")}</div>`:"";
@@ -434,7 +438,7 @@ function renderReformCard(r){
         ${pv.heirNote?`<div class="neutral" style="margin-top:8px">${esc(pv.heirNote)}</div>`:""}</div>`:"";
     body=`<div class="reformbody">${powerPick}${shiftPick}${destPick}${lawPick}
       <div class="prevblock"><div class="pl">What this changes in your toolbox</div>
-        ${unlockHtml}${lockHtml}${!pv.unlocks.length&&!pv.locks.length?`<div class="neutral">No standing actions change — the effect is structural.</div>`:""}</div>
+        ${boonHtml}${unlockHtml}${lockHtml}${!pv.unlocks.length&&!pv.locks.length?`<div class="neutral">No standing actions change — the effect is structural.</div>`:""}</div>
       ${rightsHtml?`<div class="prevblock"><div class="pl">New rights</div>${rightsHtml}</div>`:""}
       ${facHtml?`<div class="prevblock"><div class="pl">How the estates will take it</div>${facHtml}</div>`:""}
       <button class="enactbtn" data-enact="${r.id}">Enact — ${esc(r.name)}</button></div>`;
@@ -725,6 +729,30 @@ function renderPmOffer(){
       <button class="choice dyn-role" data-pmoffer="refuse"><div class="cl"><span class="mk">II</span><span class="lbl">Refuse, and send it back to the country</span></div>
         <div class="ch">a dissolution, a campaign, and an answer you may not like${n>1?` — and this is refusal number ${n}`:""}</div>
         <div class="costs"><span class="chip down">−${4*n} Stability</span><span class="chip down">legitimacy −${3*n}</span><span class="chip">if they are returned, the right is spent for good</span></div></button>
+    </div>`;
+}
+function renderSession(){
+  const pair=S._bill;
+  if(!pair||!pair.main||!S.facs[pair.main.bloc]){ S._bill=null; S.phase="dyncourt"; return `<div class="sit-text">The session rises.</div><button class="cont" id="dynSkip">Continue →</button>`; }
+  const ch=S.gov.institutions[0];
+  const card=(b,k,mk,lead)=>`<button class="choice ${k==="opp"?"dyn-role":"dyn-match"}" data-bill="${k}">
+    <div class="cl"><span class="mk">${mk}</span><span class="lbl">${esc(b.title)}</span></div>
+    <div class="ch">${esc(lead)} — ${esc(b.text)}</div>
+    <div class="costs">${billChips(S,b).map(([cl,t])=>`<span class="chip ${cl}">${esc(t)}</span>`).join("")}</div></button>`;
+  const canRefuse=isMonarchy(S)&&typeof hasPrerog==="function"&&hasPrerog(S,"assent");
+  const n=(S._assents||0)+1;
+  return `<div class="eyebrow">The session — a bill comes up for assent</div>
+    <div class="sit-title">${esc(ch?ch.name:"The Chamber")} Has Passed a Bill</div>
+    <div class="sit-text">It has been read three times, amended twice, and carried. It now wants a signature.</div>
+    <div class="choices">
+      ${card(pair.main,"main","I",`brought by the ${esc(S.facs[pair.main.bloc].name)} interest`)}
+      ${pair.opp?card(pair.opp,"opp","II",`the opposition's bill, brought by the ${esc(S.facs[pair.opp.bloc].name)} interest`):""}
+      ${canRefuse?`<button class="choice" data-bill="refuse"><div class="cl"><span class="mk">✕</span><span class="lbl">Withhold assent</span></div>
+        <div class="ch">the bill dies on the table${n>1?` — and this is refusal number ${n}`:""}</div>
+        <div class="costs"><span class="chip down">−4 Stability</span><span class="chip down">legitimacy −4</span><span class="chip">the constitutional question sharpens</span>${n>=3?`<span class="chip down">the veto is spent</span>`:""}</div></button>`:""}
+      <button class="choice" data-bill="none"><div class="cl"><span class="mk">›</span><span class="lbl">Let the session rise without it</span></div>
+        <div class="ch">no bill, no refusal, and everybody understands perfectly</div>
+        <div class="costs"><span class="chip down">−2 Stability</span></div></button>
     </div>`;
 }
 function renderHeirAge(){

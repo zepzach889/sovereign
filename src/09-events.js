@@ -500,7 +500,7 @@ const EVENTS=[
       {label:"Refuse the address",cost:{stability:-4},fac:{aristocracy:-6,clergy:-4},
         chron:S=>`the Crown refused the chamber's address for greater power; the refusal was filed, and remembered.`,
         out:"Refused with full ceremony. The address goes into the chamber's records — the kind of document that gets re-read in worse years."}]},
-  { id:"commons_forced",w:6,freq:2,when:S=>(S._commonsDismissed||0)>=3&&!S.gov.institutions.some(i=>i.composition!=="nobility"),
+  { id:"commons_forced",w:6,freq:2,when:S=>{ if((S._commonsDismissed||0)>=3&&!S.gov.institutions.some(i=>i.composition!=="nobility")){ askReform(S,"lower_house",2); return true; } return false; },
     title:"They Have Stopped Petitioning",
     text:S=>`There is no petition this time. The towns have elected delegates of their own, met without leave, and sent word of what they have resolved rather than what they request. The phrase going round is that they asked three times.`,
     choices:[
@@ -516,7 +516,7 @@ const EVENTS=[
           provinces(S).forEach(p=>{if(!p.core)p.loyalty=clamp(p.loyalty-7);});},
         chron:S=>`the Crown scattered the unauthorized assembly of the towns by force.`,
         out:"The hall is cleared in an afternoon. What was a demand becomes a grievance, what was a delegation becomes a movement, and the countryside hears about it within the month."}]},
-  { id:"commons_cry",w:0.8,freq:6,when:S=>S.gov.institutions.length>0&&!S.gov.institutions.some(i=>i.composition!=="nobility")&&(S.facs.merchants.strength+S.facs.peasantry.strength)>=95,
+  { id:"commons_cry",w:0.8,freq:6,when:S=>{ const ok=S.gov.institutions.length>0&&!S.gov.institutions.some(i=>i.composition!=="nobility")&&(S.facs.merchants.strength+S.facs.peasantry.strength)>=95; if(ok)askReform(S,"lower_house",1); return ok; },
     title:"The Cry for a Commons",
     text:S=>`The realm below the great houses has grown too big to ignore: guild money, market towns, a countryside that reads. Petitions arrive from forty towns with one demand — a chamber of their own.`,
     choices:[

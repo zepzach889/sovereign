@@ -48,6 +48,7 @@ function newGame(cfg){
     legitPen:0, notices:[], pm:null, nextElection:0, _elections:0,
     /* the constitutional machinery */
     electionEvery:2,           /* turns between elections once there is a cycle */
+    franchise:"property",      /* who is actually let in — widened by statute */
     devQuiet:!!cfg.devQuiet,   /* the long-reign toggle: weather without storms */
     _seat:"crown", _prerogSpent:{}, _unsummoned:0, _pmRefusals:0, _seatShift:null,
     ui:{chronOpen:false}, _usedCands:[], ancestors:[],

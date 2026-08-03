@@ -65,7 +65,7 @@ function budgetBreakdown(S){
   if(kin)up.push(`${Math.round(kin*2.4)} royal household`);
   if(S.gov.cabinet)up.push("5 cabinet");
   if(S._armyUpkeep)up.push(`${S._armyUpkeep} standing army`);
-  if(S._upkeepAge)up.push(`${S._upkeepAge} public works and services`);
+  if(S._upkeepAge)up.push(`${S._upkeepAge} rails, sewers, schools and locks <span style="color:var(--dim)">(promised by your own advances; they do not maintain themselves)</span>`);
   if(S.debt>0)up.push(`${Math.min(30,Math.round(S.debt*0.12))} debt service`);
   parts.push(`<b>Out:</b> ${up.join(" + ")}`);
   if(S._landsSold)parts.push(`<b>Crown lands sold in the capitulation:</b> receipts permanently reduced by ${Math.round(S._landsSold*100)}%`);

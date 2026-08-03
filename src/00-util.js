@@ -12,3 +12,6 @@ const clamp=n=>Math.max(0,Math.min(100,Math.round(n)));
 const rand=n=>Math.floor(Math.random()*n);
 const pick=a=>a[rand(a.length)];
 const chance=p=>Math.random()<p;
+
+/* a second picker, because `pick` is spoken for */
+function pick2(a){ return a[Math.floor(Math.random()*a.length)]; }
