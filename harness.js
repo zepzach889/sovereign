@@ -303,9 +303,24 @@ console.log("\n— targeted screens —");
   st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 0, rights: ["tax"] });
   st.pm = null; st._pmPending = false;
   G.maybeTransform(st);
-  ok(st._pmPending, "ministry: seating a chamber at full crown power must still call for a ministry");
+  ok(!st._pmPending,
+     "ministry: an advisory Estates General must not produce a Prime Minister");
+  /* but a commons does */
+  st.gov.institutions.push({ id: "commons", name: "Commons", composition: "commons", power: 0, rights: ["petition"] });
+  G.maybeTransform(st);
+  ok(st._pmPending, "ministry: seating a commons must call for a ministry");
+  /* and so does an assembly that has grown into a governing one */
+  S = freshGame(); const st9 = B.S;
+  st9.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 0, rights: ["tax"] });
+  G.transferPower(st9, st9.gov.institutions[0], 35);
+  st9.pm = null; st9._pmPending = false;
+  G.maybeTransform(st9);
+  ok(st9._pmPending, "ministry: an assembly holding 35 points is a governing chamber");
 
   /* ---- summons above 70 with one chamber; a cycle otherwise ---- */
+  S = freshGame(); st = B.S;
+  st.gov.institutions.push({ id: "estates", name: "Estates", composition: "nobility", power: 0, rights: ["tax"] });
+  st.pm = null;
   ok(G.electionMode(st) === "none", "cadence: no ministry means no elections at all");
   st.pm = { office: "Prime Minister", bloc: "aristocracy", holder: "Test", age: 50 };
   st.gov.crown.power = 85;
@@ -566,6 +581,109 @@ console.log("\n— targeted screens —");
   try { sandbox.doHeirAge("progress"); } catch (e) { fail(`heirage: stale click threw: ${e.message}`); }
   ok(B.S.stability === t0 && B.S.phase === "dyncourt",
      "heirage: a stale click from another phase still applied the beat");
+
+  /* ===== v13.1: conceding actually lowers constitutional pressure ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.eraIdx = 6;
+    if (st.facs.reformers) { st.facs.reformers.present = true; st.facs.reformers.strength = 52; }
+    st.facs.merchants.strength = 52;
+    st._pressOn = true; st._opinionOn = true;
+    st.gov.institutions.push({ id: "c", name: "Commons", composition: "commons", power: 0, rights: [] });
+    st.gov.crown.power = 100; st.gov.institutions[0].power = 0;
+    const absolute = sandbox.pressureBase(st, "constitutional");
+    /* now concede: hand the chamber real power */
+    sandbox.transferPower(st, st.gov.institutions[0], 70);
+    const conceded = sandbox.pressureBase(st, "constitutional");
+    ok(conceded < absolute,
+       `pressure: conceding power did not lower the constitutional reading (${absolute} -> ${conceded})`);
+    ok(absolute - conceded >= 15,
+       `pressure: conceding 70 points moved the reading only ${absolute - conceded}`);
+    invariants(st, "after conceding");
+
+    /* a charter and a widened franchise tell as well */
+    const before = sandbox.pressureBase(st, "constitutional");
+    st.gov.charter = { name: "A Charter" };
+    st.franchise = "broad";
+    ok(sandbox.pressureBase(st, "constitutional") < before,
+       "pressure: a charter and a broader franchise bought nothing");
+
+    /* and the floor still rises with the age, whatever you do */
+    S = freshGame(); const st2 = B.S;
+    st2.eraIdx = 0; const early = sandbox.pressureBase(st2, "constitutional");
+    st2.eraIdx = 8; const late = sandbox.pressureBase(st2, "constitutional");
+    ok(late > early, `pressure: the age no longer raises the demand (${early} -> ${late})`);
+  }
+
+  /* ===== v13.1: every reading names its reasons ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    for (const id of ["military", "radical", "constitutional", "restorationist"]) {
+      const why = sandbox.pressureWhy(st, id);
+      ok(Array.isArray(why), `attribution: ${id} returned no reasons array`);
+      ok(typeof sandbox.pressureRelief(st, id) === "string",
+         `attribution: ${id} offers no way to bring it down`);
+    }
+    /* the barracks paradox: a failing state with devoted officers */
+    st.facs.officers.mood = 100;
+    st.stability = 5; st.legitPen = 60;
+    const why = sandbox.pressureWhy(st, "military");
+    ok(why.length > 0, "attribution: a high military reading gave no reasons at all");
+    ok(!why.some(t => /disaffected/.test(t)),
+       `attribution: blamed disaffected officers at mood 100 — "${why.join(" / ")}"`);
+  }
+
+  /* ===== v13.1: a rupture is announced before it breaks ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.notices = []; st._pWatch = {};
+    /* pressureOf reads the smoothed value the turn maintains, so set that */
+    st.pressure.constitutional = 70;
+    ok(sandbox.pressureOf(st, "constitutional") >= 62,
+       "warning: could not drive the reading high enough to test");
+    ok(sandbox.driftUrgent(st),
+       "warning: the Drift panel does not know it belongs above the fold at 70");
+    const before = st.notices.length;
+    sandbox.tickPressureWatch(st);
+    ok(st.notices.length > before,
+       "warning: crossing 62 raised no notice at all — this is the 'came out of nowhere' bug");
+    ok((st._pWatch || {}).constitutional >= 1, "warning: the watch band was not recorded");
+    /* and it must not nag every single turn at the same band */
+    const after = st.notices.length;
+    st.pressure.constitutional = 70;
+    sandbox.tickPressureWatch(st);
+    ok(st.notices.length === after || st.notices.length <= after + 1,
+       "warning: the same band is being announced over and over");
+    /* but crossing the second threshold speaks again */
+    const at78 = st.notices.length;
+    st.pressure.constitutional = 84;
+    sandbox.tickPressureWatch(st);
+    ok(st.notices.length > at78, "warning: crossing 78 said nothing");
+    ok(!sandbox.driftUrgent(freshGame() && B.S), "warning: a calm realm is being flagged as urgent");
+  }
+
+  /* ===== v13.1: the heir's line breeds like a reigning house ===== */
+  {
+    let total = 0;
+    for (let i = 0; i < 40; i++) {
+      S = freshGame();
+      const st = B.S;
+      const sp = sandbox.makePerson(st, "spouse", st.monarch.gender === "m" ? "f" : "m", 40);
+      sp.spouseId = st.monarch.id; st.monarch.spouseId = sp.id; st.family.push(sp);
+      const kid = sandbox.makePerson(st, "child", "f", 24, null, [st.monarch.id, sp.id]);
+      const kidsp = sandbox.makePerson(st, "childspouse", "m", 26);
+      kid.spouseId = kidsp.id; kidsp.spouseId = kid.id;
+      st.family.push(kid, kidsp);
+      const before = st.family.filter(p => p.rel === "grandchild").length;
+      sandbox.maybeBirth(5);
+      total += st.family.filter(p => p.rel === "grandchild").length - before;
+    }
+    const mean = total / 40;
+    ok(mean > 0.9, `fertility: the heir's marriage yields ${mean.toFixed(2)} grandchildren a turn — the direct line is still starved`);
+  }
 
   /* a granddaughter in the succession can be married off */
   {
