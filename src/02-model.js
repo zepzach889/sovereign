@@ -193,12 +193,23 @@ function adjCost(S,a){
   if(c.gold&&c.gold<0)c.gold=Math.round(c.gold*m);
   return c;
 }
+/* A chamber that can actually sustain or bring down a government: a
+   commons, or an assembly grown to hold real governing weight. An Estates
+   General holding twelve points and consenting to taxes is not one — it is
+   a body you summon when you need money and send home again. Treating it
+   as one generated a First Minister, a governing coalition, a programme of
+   legislation and early elections in a period where none existed. */
+function governingChamber(S){
+  return (S.gov.institutions||[]).find(i=>
+    i.composition==="commons"||i.composition==="broad"||i.composition==="national"
+    ||i.power>=30) || null;
+}
 function maybeTransform(S){
   if(!isMonarchy(S))return false;   /* only a crown can be reduced to a ministry */
   /* A chamber needs someone who can manage it. The ministry is born with
      the first assembly, not with the crown's defeat — it simply starts as
      a servant and ends as the government. */
-  if(!S.pm&&!S._pmPending&&S.gov.institutions.length) S._pmPending=true;
+  if(!S.pm&&!S._pmPending&&governingChamber(S)) S._pmPending=true;
   if(S.pm){
     S._seat=S._seat||"crown";
     const want=seatNow(S);

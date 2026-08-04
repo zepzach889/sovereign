@@ -43,6 +43,83 @@ function collapseDrive(S){
   c+=angry*6;
   return c;
 }
+/* What the age expects a crown to hold. Absolute rule was unremarkable in
+   1600 and an outrage by 1900; the number is the same and the meaning is
+   not. */
+function expectedCrown(S){ return Math.max(5,88-eraIdx(S)*11); }
+/* How much of the country's demand for representative government has
+   already been met. This is the thing that was missing: reform has to pay
+   in the currency that kills you, or reform is not a strategy. */
+function constitutionalRelief(S){
+  let r=0;
+  const held=(S.gov.institutions||[]).reduce((a,i)=>a+i.power,0);
+  if(isMonarchy(S)){
+    const gap=expectedCrown(S)-(S.gov.crown.power|0);
+    r+=Math.max(-14,Math.min(30,gap*0.55));   /* under the curve, or over it */
+  } else {
+    r+=14;                                     /* the crown question is settled */
+  }
+  r+=Math.min(20,held*0.28);                   /* chambers that actually hold something */
+  if(S.gov.charter)r+=8;
+  if(typeof franchiseIdx==="function")r+=franchiseIdx(S)*4;
+  if(S.pm&&typeof pmGoverns==="function"&&pmGoverns(S))r+=10;
+  /* a concession freely given buys more than one extracted */
+  r+=Math.min(10,(S._freeReforms||0)*3);
+  return r;
+}
+/* =====================================================================
+   ATTRIBUTION
+   A reading with no reasons is an oracle, not a diagnosis. The panel now
+   names its two largest drivers, so "the barracks are at breaking point"
+   stops meaning "your soldiers hate you" when what it means is "the state
+   is failing and the army is what is left".
+   ===================================================================== */
+function pressureWhy(S,id){
+  const f=S.facs, collapse=collapseDrive(S), out=[];
+  const add=(n,t)=>{ if(n>3)out.push({n,t}); };
+  if(id==="military"){
+    add(collapse*0.55,"a state the officers no longer believe can govern");
+    add((S._militaryLeaned||0)*3,"a crown that keeps calling for the regiment");
+    add(Math.max(0,S.military-45)*0.5,"an army larger than the country needs");
+    add((S._armyUpkeep||0)*1.2,"a standing establishment nobody can pay for");
+    add(f.officers.mood<40?14:0,"officers who are genuinely disaffected");
+  } else if(id==="radical"){
+    const w=f.workers||{mood:50,strength:0,present:false};
+    add(collapse*0.7,"a state visibly failing");
+    add(Math.max(0,45-f.peasantry.mood)*0.7,"a countryside that is hungry and knows why");
+    add(w.present?Math.max(0,55-w.mood)*0.55+w.strength*0.25:0,"mill towns that can now organise");
+    add(S.taxRate==="oppressive"?12:S.taxRate==="heavy"?5:0,"a tax burden the poor carry");
+  } else if(id==="constitutional"){
+    const r=f.reformers||{mood:50,strength:0,present:false};
+    add(f.merchants.strength*0.28,"a merchant class with money and no say");
+    add(r.present?r.strength*0.3:0,"reformers with a programme and a printing press");
+    add(eraIdx(S)*4,"an age in which absolute rule has stopped being normal");
+    add((S._pressOn?10:0)+(S._opinionOn?10:0),"a public that reads");
+    if(isMonarchy(S)){
+      const gap=expectedCrown(S)-(S.gov.crown.power|0);
+      if(gap<-4)out.push({n:-gap*0.55,t:`a crown holding ${S.gov.crown.power|0} in an age that expects ${expectedCrown(S)}`});
+    }
+  } else {
+    add(isMonarchy(S)?0:collapse*0.6,"a republic that has not convinced anyone");
+    add(f.aristocracy.strength*0.22,"great houses with land and memory");
+    add(f.clergy.strength*0.18,"a church that preferred the old arrangement");
+    add((S.exiles&&S.exiles.alive)?20:0,"a claimant alive in exile");
+  }
+  out.sort((a,b)=>b.n-a.n);
+  return out.slice(0,2).map(x=>x.t);
+}
+/* and what would actually bring it down */
+function pressureRelief(S,id){
+  if(id==="constitutional"){
+    if(!isMonarchy(S))return "";
+    const gap=expectedCrown(S)-(S.gov.crown.power|0);
+    if(gap<0)return `Conceding power would tell: every point the crown gives up below ${expectedCrown(S)} takes this reading down with it.`;
+    return "The crown already sits under what the age expects, which is most of why this is survivable.";
+  }
+  if(id==="military")return "Pay the arrears, stop leaning on the regiment, and cut the establishment you cannot afford.";
+  if(id==="radical")return "Bread, wages, and a tax burden the poor are not carrying alone.";
+  return "Titles, privileges, and a church that feels consulted.";
+}
 function pressureBase(S,id){
   const f=S.facs;
   const collapse=collapseDrive(S);
@@ -66,12 +143,12 @@ function pressureBase(S,id){
   }
   if(id==="constitutional"){
     const r=f.reformers||{mood:50,strength:0,present:false};
-    return clamp( collapse*0.5
+    const demand=collapse*0.5
       + f.merchants.strength*0.28
       + (r.present?r.strength*0.3:0)
       + (S._pressOn?10:0) + (S._opinionOn?10:0)
-      + eraIdx(S)*4
-      + ((S.gov.institutions||[]).length?8:0) );
+      + eraIdx(S)*4;
+    return clamp(demand-constitutionalRelief(S));
   }
   if(id==="restorationist"){
     return clamp( (isMonarchy(S)?0:collapse*0.6)
@@ -117,5 +194,14 @@ function pressurePanel(S){
       const cls=v>=78?"crit":v>=62?"warn":"";
       return `<div class="prow ${cls}"><span class="pn">${esc(p.name)}</span><span class="pw">${pressureWord(v)}</span></div>`;
     }).join("")}
-    <div class="pnote">${esc(lead.def.blurb)} — the realm leans toward ${esc(lead.def.toward)}.</div></div>`;
+    <div class="pnote">${esc(lead.def.blurb)} — the realm leans toward ${esc(lead.def.toward)}.</div>
+    ${lead.v>=52?`<div class="pwhy"><div class="pwhyh">Why ${esc(lead.def.name.toLowerCase())}</div>
+      ${pressureWhy(S,lead.def.id).map(t=>`<div class="pwhyr">· ${esc(t)}</div>`).join("")}
+      <div class="pwhyr rel">${esc(pressureRelief(S,lead.def.id))}</div></div>`:""}
+    </div>`;
+}
+/* is anything close enough to breaking that the panel belongs at the top? */
+function driftUrgent(S){
+  const cur=S.regime||"monarchy";
+  return PRESSURES.some(p=>REGIME_OF_PRESSURE[p.id]!==cur&&pressureOf(S,p.id)>=62);
 }

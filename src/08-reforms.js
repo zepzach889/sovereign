@@ -153,6 +153,7 @@ function reformBoon(S,r){
 /* what the boon actually does, applied once at enactment */
 function applyReformBoon(S,r){
   const b=reformBoon(S,r); if(!b)return null;
+  if(b.tier==="motion")S._freeReforms=(S._freeReforms||0)+1;
   if(b.tier==="duress"){
     /* no boon, a mark that lasts, and the forcing estate keeps its gains */
     S.legitPen=(S.legitPen||0)+10;

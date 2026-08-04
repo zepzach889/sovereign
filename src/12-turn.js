@@ -54,6 +54,9 @@ function afterElection(){
   S.nextElection=S.turn+electionEvery(S);
   S._electionResult=null;
   if(!S.pm||!er){ checkMilestones(); rollEvent(false); render(); return; }
+  /* a crown in personal rule names its minister every time, not only when
+     the benches change hands — the ministry is its gift either way */
+  if(crownAppointsPm(S)){ S._pmField=pmField(S,er.winner,er); S.phase="pmpick"; render(); return; }
   if(er.winner===S.pm.bloc){
     if(S.pm.age>=68){ const old=S.pm.holder; S.pm.holder=pmName(); S.pm.age=44+rand(16);
       S.chronicle.push({year:S.year,text:`In ${S.year}, the ${S.facs[er.winner].name} interest was returned — but ${old}, grown old in office, gave way to ${S.pm.holder}.`});
@@ -459,7 +462,9 @@ function officeField(S,roleId){
   if(isMonarchy(S)){
     roleEligible(S).sort((a,b)=>b.age-a.age).slice(0,3).forEach(p=>{
       list.push({id:p.id,name:p.name,age:p.age,gender:p.gender,trait:p.trait,
-        royal:true,alive:true,job:null,bloc:"aristocracy",label:"of the blood",
+        royal:true,alive:true,job:null,bloc:"aristocracy",
+        rel:(typeof relCodeFor==="function")?relCodeFor(S,p):p.rel,
+        label:"of the blood",
         skill:rollSkill(S,{royal:true,trait:p.trait},r.dom),
         loyalty:rollLoyalty(S,{royal:true,trait:p.trait}),forOffice:roleId});
     });
@@ -588,7 +593,8 @@ function matchCandidates(S,p){
         f.chips=[["up","+22 gold"],["up","+3 Arms"],["up","a friend abroad"]]; } }
     if(n.k==="placate"&&S.facs[n.bloc]){ const d=list.find(x=>x.kind==="domestic");
       if(d){ d.placate=n.bloc; d.note=`of a house the ${S.facs[n.bloc].name} would follow anywhere`;
-        d.chips=[["fac up",`${S.facs[n.bloc].name} +10`],["fac up","Aristocracy +4"]]; } }
+        d.chips=(n.bloc==="aristocracy")?[["fac up","Aristocracy +14"]]
+          :[["fac up",`${S.facs[n.bloc].name} +10`],["fac up","Aristocracy +4"]]; } }
     if(n.k==="heal"&&S.rival){ const d=list.find(x=>x.kind==="domestic");
       if(d){ d.heal=true; d.note="of the rival's own house — a claim married rather than fought";
         d.chips=[["up","the rival claim is settled"],["fac up","Aristocracy +5"],["down","−10 gold"]]; } }
@@ -679,7 +685,7 @@ function doMatch(i){
       effect:S2=>{ S2.rival=null; S2.stability=clamp(S2.stability+5); },
       chron:S=>`${p.name} of the royal house wed ${c.name} of the rival's own house, and a claim that might have been fought over was married instead.`,
       out:`The contract is signed and the claim dissolves into the family. Cheaper than a war and considerably more humiliating for everyone involved, which is why it works.`};
-    else if(c.placate&&S.facs[c.placate]) out={fac:Object.assign({aristocracy:+4},{[c.placate]:+10}),
+    else if(c.placate&&S.facs[c.placate]) out={fac:(c.placate==="aristocracy")?{aristocracy:+14}:Object.assign({aristocracy:+4},{[c.placate]:+10}),
       chron:S=>`${p.name} of the royal house wed ${c.name} of House ${c.house}, and the ${S.facs[c.placate].name} took it as the compliment it was.`,
       out:`A marriage aimed squarely at the estate that has been hardest to hold. They understand the gesture perfectly, and are pleased anyway.`};
     else out={fac:{aristocracy:+7},
@@ -797,6 +803,29 @@ function renderDesignate(){
 }
 function afterDynastic(){ S.phaseDone.dynastic=true; S.result=null; endTurn(); render(); }
 
+/* =====================================================================
+   THE WARNING
+   A rupture must be foreseeable before it breaks — that is in the spine,
+   and it had stopped being true. Every pressure now raises a notice the
+   turn it crosses 62, and again at 78, phrased as report rather than
+   alarm. Lifted out of endTurn so it can be tested on its own.
+   ===================================================================== */
+function tickPressureWatch(S){
+  S._pWatch=S._pWatch||{};
+  PRESSURES.forEach(p=>{
+    if(REGIME_OF_PRESSURE[p.id]===(S.regime||"monarchy"))return;
+    const v=pressureOf(S,p.id);
+    const band=v>=78?2:v>=62?1:0;
+    const was=S._pWatch[p.id]||0;
+    if(band>was){
+      const why=pressureWhy(S,p.id);
+      S.notices.push(band>=2
+        ? `${p.name}: this is now the likeliest way this government ends. ${why.length?why[0].charAt(0).toUpperCase()+why[0].slice(1)+"." : ""} ${pressureRelief(S,p.id)}`
+        : `${p.name} is building — the realm is beginning to lean toward ${p.toward}. ${why.length?why[0].charAt(0).toUpperCase()+why[0].slice(1)+"." : ""}`);
+    }
+    S._pWatch[p.id]=band;
+  });
+}
 function endTurn(){
   const span=5; // a turn is always five years
   S.year+=span; S.turn++;
@@ -921,6 +950,7 @@ function endTurn(){
     const ps=provinces(S);
     if(ps.length)S.facs.provinces.mood=clamp(ps.reduce((a,p)=>a+p.loyalty,0)/ps.length);
   }
+  tickPressureWatch(S);
   officeUpkeep(S);
   // births
   maybeBirth(span);
@@ -994,9 +1024,14 @@ function maybeBirth(span){
     const bearer=(c.gender==="f")?c.age:cs.age;
     if(bearer<17||bearer>45)return;
     const gk=S.family.filter(x=>x.rel==="grandchild"&&x.alive&&x.parents&&x.parents.includes(c.id)).length;
-    if(chance(Math.min(0.4, span*0.09*(gk<2?1.2:0.5)))){
+    /* The heir's marriage is the one the whole court is watching, and it was
+       breeding at 0.4 with one roll a turn while cadet branches ran at 0.55.
+       The direct line was starved by construction — which is why every game
+       arrived at adoption. Three rolls, as for a reigning house. */
+    for(let att=0;att<3;att++){
+      if(!chance(Math.min(0.60, span*0.10*(gk<5?1:0.5))))continue;
       const g=chance(0.5)?"m":"f";
-      const gc=makePerson(S,"grandchild",g,0,null,[c.id,cs.id]);
+      const gc=makePerson(S,"grandchild",g,rand(5),null,[c.id,cs.id]);
       S.family.push(gc);
       S.notices.push(`${c.name} has been delivered of a ${g==="m"?"son":"daughter"}, ${gc.name} — a grandchild to the sovereign.`);
     }

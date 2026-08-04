@@ -58,7 +58,7 @@ const ACTIONS=[
         out:"The chamber is in no mood to be generous. A fraction of the ask — and a lecture besides."};
     }},
   { id:"peers",label:"Create peers",cool:4,
-    hint:"the upper house can always be made larger, and the new men will remember who made them",
+    hint:"the upper house can always be made larger — every peer you create is a vote the old families no longer control, which is exactly why they loathe it",
     gain:"the upper chamber bends toward the crown",
     cost:{gold:-24},requires:S=>hasPrerog(S,"peers")&&S.gov.institutions.some(i=>i.composition==="nobility")&&eraIdx(S)>=2,
     resolve:S=>({cost:{gold:-24},fac:{aristocracy:-6,merchants:+4},

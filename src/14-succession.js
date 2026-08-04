@@ -16,7 +16,20 @@ function successionOptions(){
   const sibs=S.family.filter(p=>p.rel==="sibling"&&p.alive&&p.age>=16);
   return {mode:"crisis",sibs};
 }
+function reclaimHousehold(S,p){
+  /* Whoever is crowned brings their household back to court with them.
+     The elder sister's husband was being left in a cadet line while her
+     daughter sat in the main readout. */
+  if(!p)return;
+  p.cadet=false; p.branch=null;
+  (S.family||[]).forEach(q=>{
+    if(!q)return;
+    if(q.spouseId===p.id||(q.parents&&q.parents.indexOf(p.id)>=0)){ q.cadet=false; q.branch=null; }
+  });
+}
 function crownPerson(p,houseName,viaCrisis){
+  reclaimHousehold(S,p);
+
   /* A sovereign who laid the crown down is not dead. They step out of the
      styling and into the family, where the realm can go on being reminded
      of them — which is rather the point of an abdication. */

@@ -138,7 +138,10 @@ function familyPanel(){
             &&(x.parents.indexOf(c.id)>=0||(sp&&x.parents.indexOf(sp.id)>=0)));
           kids.forEach(k=>{ if(k.cadet&&k.branch===c.branch)shown[k.id]=true; });
           const tr=traitShown(c);
-          rows.push(`<div class="person cadet"><span class="pr">${esc(relLabel(c)||"kin")}</span><span>${esc(c.name)}, ${c.age}</span>${tr?`<span class="trait ${tr.sure?"sure":""}">${tr.sure?"":"\u201c"}${esc(tr.text)}${tr.sure?"":"\u201d"}</span>`:""}${sp?`<span class="wed">\u229a ${esc(sp.name)}${sp.alive===false?" \u2020":""}</span>`:""}${kids.length?`<span class="office">${kids.length===1?"child":"children"}: ${kids.map(k=>esc(k.name)+", "+k.age).join(" \u00b7 ")}</span>`:""}</div>`);
+          /* compute the label now, against the current sovereign — a stored
+             one goes stale the moment the crown moves */
+          const rl=(typeof relCodeFor==="function")?relLabel(Object.assign({},c,{rel:relCodeFor(S,c)})):relLabel(c);
+          rows.push(`<div class="person cadet"><span class="pr">${esc(rl||"kin")}</span><span>${esc(c.name)}, ${c.age}</span>${tr?`<span class="trait ${tr.sure?"sure":""}">${tr.sure?"":"\u201c"}${esc(tr.text)}${tr.sure?"":"\u201d"}</span>`:""}${sp?`<span class="wed">\u229a ${esc(sp.name)}${sp.alive===false?" \u2020":""}</span>`:""}${kids.length?`<span class="office">${kids.length===1?"child":"children"}: ${kids.map(k=>esc(k.name)+", "+k.age).join(" \u00b7 ")}</span>`:""}</div>`);
         });
       });
     }
@@ -225,14 +228,16 @@ function render(){
       </div>
       <div class="bkline"><button class="bktog" id="bkTog">${(S.ui&&S.ui.budgetOpen)?"hide the reckoning ▴":"how is this figured? ▾"}</button></div>
       ${(S.ui&&S.ui.budgetOpen)?`<div class="budgetbreak">${budgetBreakdown(S)}</div>`:""}
+      ${driftUrgent(S)?pressurePanel(S):""}
       <div class="kbox"><span class="kk">Knowledge</span><span class="kv">${S.knowledge.toFixed(1)} <small style="color:var(--dim);font-size:10px">+${knowledgeIncome(S).toFixed(2)}/yr</small></span></div>
       <div class="legit-src" style="margin:7px 0 0">${legitSources(S)}</div>
       ${juntaPanel(S)}
       ${mandatePanel(S)}
       ${planPanel(S)}
 
+      ${driftUrgent(S)?"":""}
       <div class="facs"><div class="gt">The Powers of the Realm <span style="color:var(--dim);letter-spacing:.04em">— number = influence, bar = mood</span></div>${facHtml}</div>
-      ${pressurePanel(S)}
+      ${driftUrgent(S)?"":pressurePanel(S)}
       ${provincePanel()}
     </aside>
     <section class="console">
