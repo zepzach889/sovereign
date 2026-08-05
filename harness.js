@@ -616,6 +616,100 @@ console.log("\n— targeted screens —");
     ok(late > early, `pressure: the age no longer raises the demand (${early} -> ${late})`);
   }
 
+  /* ===== v13.3: seats, and the counting of votes ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.gov.institutions.push({ id: "c", name: "Commons", composition: "commons", power: 0, rights: ["tax"] });
+    sandbox.transferPower(st, st.gov.institutions[0], 40);
+    const inst = st.gov.institutions[0];
+
+    const seats = sandbox.seatsOf(st, inst);
+    ok(seats.length > 0, "seats: the chamber has no members at all");
+    const total = seats.reduce((a, r) => a + r.seats, 0);
+    ok(total === sandbox.chamberSeats(inst),
+       `seats: the seats sum to ${total}, chamber holds ${sandbox.chamberSeats(inst)}`);
+    ok(seats.every(r => r.seats >= 0), "seats: an interest was given negative seats");
+
+    /* influence decides seats; mood does not */
+    st.facs.merchants.mood = 5; st.facs.peasantry.mood = 95;
+    const moody = sandbox.seatsOf(st, inst).reduce((a, r) => a + r.seats, 0);
+    ok(moody === total, "seats: mood changed the size of the house");
+
+    /* the franchise decides them */
+    st.franchise = "property";
+    const narrow = sandbox.seatsOf(st, inst).find(r => r.k === "peasantry").seats;
+    st.franchise = "universal";
+    const wide = sandbox.seatsOf(st, inst).find(r => r.k === "peasantry").seats;
+    ok(wide > narrow,
+       `seats: widening the franchise gave the peasantry no more seats (${narrow} -> ${wide})`);
+
+    /* the whip count adds up and knows what it is short */
+    const w = sandbox.whipCount(st, inst, null);
+    ok(w.for + w.against + w.doubtful === w.total,
+       `whip: the division sums to ${w.for + w.against + w.doubtful}, house is ${w.total}`);
+    ok(w.need === Math.floor(w.total / 2) + 1, "whip: the majority threshold is wrong");
+    ok(w.carries === (w.likely >= w.need), "whip: 'carries' disagrees with the arithmetic");
+    ok(typeof w.short === "number" && w.short >= 0, "whip: no count of how far short you are");
+
+    /* a hostile house does not carry, and names who could be brought over */
+    Object.keys(st.facs).forEach(k => { if (st.facs[k]) st.facs[k].mood = 10; });
+    const hostile = sandbox.whipCount(st, inst, null);
+    ok(!hostile.carries, "whip: a house at mood 10 still carries everything");
+    ok(hostile.short > 0, "whip: a hostile house reports nothing short");
+    const get = sandbox.gettable(st, inst, null);
+    ok(get.length > 0, "whip: nobody is named as gettable in a hostile house");
+    ok(get.every(g => g.price && g.price.length), "whip: a gettable interest has no price");
+
+    /* and consent now runs off the count rather than a hidden roll */
+    const c = sandbox.consentCheck(st, "tax");
+    ok(c.required && c.whip, "consent: no whip count attached");
+    ok(c.approve === c.whip.carries, "consent: approval disagrees with the division");
+  }
+
+  /* ===== v13.3: a season is five years ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st._courtDid = { act: false, reform: false, tax: false };
+    st.phaseDone = { event: true, court: false, advance: false, dynastic: false };
+    st._courtKind = "tax";
+    sandbox.afterCourt();
+    ok(!B.S.phaseDone.court,
+       "court: changing the rate ended the whole season — a turn is five years");
+    ok(sandbox.courtSpent(B.S, "tax"), "court: the rate change was not recorded");
+    ok(!sandbox.courtSpent(B.S, "act"), "court: the rate change also consumed your act of state");
+    B.S._courtKind = "act";
+    sandbox.afterCourt();
+    ok(sandbox.courtSpent(B.S, "act"), "court: the act of state was not recorded");
+  }
+
+  /* ===== v13.3: no woman of the blood in office before the mass franchise ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.eraIdx = 1;
+    const she = sandbox.makePerson(st, "sibling", "f", 30);
+    ok(!sandbox.officeAgeAllows(st, she),
+       "office: a princess could hold the Exchequer in the Sail & Coin age");
+    st.eraIdx = 8;
+    ok(sandbox.officeAgeAllows(st, she), "office: no woman ever reaches office at all");
+  }
+
+  /* ===== v13.3: the ask has to actually happen ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.pressure.constitutional = 80;
+    st.reformAsk = {}; st._estatesAsked = false;
+    const r = sandbox.__reforms.find(x => x.id === "summon_estates");
+    ok(sandbox.reformTier(st, r) === "motion",
+       "tiers: the card says 'upon petition' when nobody has petitioned");
+    sandbox.askReform(st, "summon_estates", 1);
+    ok(sandbox.reformTier(st, r) === "petition",
+       "tiers: a real ask did not register as a petition");
+  }
+
   /* ===== v13.2: every remedy the panel names must exist ===== */
   {
     S = freshGame();

@@ -44,3 +44,20 @@ if (tagged.join("|") !== manifest.join("|")) {
   process.exit(1);
 }
 console.log(`  index.html loads all ${tagged.length} modules in order: OK`);
+
+/* ---- guard: index.html is hand-maintained and carries its OWN copy of the
+   control bar. A button added to shell-mid.html reaches dist/ and not the page
+   GitHub Pages actually serves — which is exactly how the whole Ledger feature
+   shipped invisible, fully working and untouchable. ---- */
+{
+  const shell = fs.readFileSync(path.join(SRC, "shell-mid.html"), "utf8");
+  const idx = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  const ids = [...shell.matchAll(/<button\s+id="([^"]+)"/g)].map(m => m[1]);
+  const missing = ids.filter(id => idx.indexOf('id="' + id + '"') < 0);
+  if (missing.length) {
+    console.error("  CONTROL MISMATCH: index.html is missing " + missing.join(", "));
+    process.exitCode = 1;
+  } else {
+    console.log("  index.html carries all " + ids.length + " shell controls: OK");
+  }
+}

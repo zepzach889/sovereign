@@ -1,68 +1,68 @@
 # Sovereign — changelog
 
-## v13.2 — the Ledger, and remedies that exist
+## v13.3 — the floor of the house
 
-The warnings landed last build: you got a Tiding, the Drift moved above the
-fold, you read the diagnosis and went to do something about it. Then the game
-named three remedies and contained none of them. That is worse than silence.
+### The Ledger was never in your game
 
-### The Ledger
+`index.html` is hand-maintained and carries its **own** copy of the top-bar
+markup. I added the Ledger button to `src/shell-mid.html`, which feeds `dist/`
+and not the page GitHub Pages serves. So the entire headline feature of v13.2 —
+the answer to "no way to shrink the army", asked for twice — sat in the code
+fully working and completely unreachable.
 
-Its own screen, opened from the top bar whenever you like, and it does **not**
-cost you the court's action — cutting the army should never compete with
-celebrating a birth.
+The button is now in `index.html`, and **the build fails** if any control in the
+shell is missing from it. Verified by removing the button: `CONTROL MISMATCH:
+index.html is missing btnLedger`.
 
-Every standing commitment is a named line with its cost per turn, a posture you
-set, and somebody who lives off it:
+### Seats, and the counting of votes
 
-- **The host** — regiments, garrisons, powder and forage.
-- **The standing establishment** — the permanent army the Drilled Ranks
-  committed you to.
-- **Privileges of the great houses** — sinecures and exemptions on the roll
-  since nobody remembers when.
-- **The civil list** — the sovereign's household.
-- **Rails, sewers, schools and locks** — what your own advances promised.
+Consent used to be a hidden roll — you asked, and afterwards you were told. That
+is not parliamentary government. Parliamentary government is arithmetic you can
+see and work on.
 
-Each step down names what it saves and whom it enrages, holds until you revisit
-it, and can be restored at a price. Lines you have no commitment on don't
-appear. `retrench` — one action that rolled a die between three things you
-couldn't choose — is retired.
+- **The chamber has seats.** 90 for an upper house, 150 for a commons, divided
+  among the interests by influence and by the franchise. Mood does not change
+  the size of the house; an interest does not lose seats for being cross.
+- **A division bar** under each chamber: who is for, doubtful and against, with
+  a needle at the majority line.
+- **The floor**, on a toggle: every interest, its seats, and where it stands.
+- **A whip count on anything that needs consent** — before you spend the turn.
+  *"About 68 of 150, 76 carries it — 8 short."*
+- **And who is gettable**, with what it would take: an office, a bill of theirs
+  passed first, or a concession.
 
-### Remedies that exist
+Widening the franchise now visibly moves seats, which is the whole point of it
+and was previously invisible.
 
-The diagnosis panel named three things. All three now exist:
+### A season is five years
 
-- **Pay the army's arrears.** Expensive, unglamorous, and the most reliable
-  thing any state has ever done about the possibility of a coup.
-- **Open the granaries and fund relief.** Every rising was hungry first.
-- **Endow the old order.** Titles, chapels and precedence — cheap, ceremonial,
-  and it keeps the great houses arguing about seating instead of restoration.
-- **Commission from outside the great houses** — an officer corps that owes its
-  career to the state rather than to its cousins.
+One act per turn meant fixing the taxes and celebrating the birth of an heir
+were the same decision. A turn now allows **one act of state, one reform, and
+one change to the rate**, and the court sits until you close it. Doing nothing
+at all still costs you.
 
-There is a test asserting that every remedy the panel names is an action the
-player can actually take, and that each one moves the pressure it claims to.
+### The ask has to actually happen
 
-**"Stop leaning on the regiment"** was scolding you in 1905 for a levy in 1730 —
-`_militaryLeaned` never decayed. It does now.
+The reform tiers inferred a petition from the state of the world, so the card
+said "asked for" when nobody had asked — three playthroughs running. Now:
 
-### The floor that swallowed your concession
+- **A real petition event** — the great houses, the towns and the church ask for
+  an assembly, politely, and you receive it or return it unread. Return it three
+  times and the next reform is under duress.
+- **The reformers publish their programme** as a Tiding when they wake.
+- The tiers no longer invent an ask that never happened.
 
-Verified arithmetic from the save. Relief was `max(−14, gap × 0.55)`. In the
-Reason age the expectation is 44; a crown at 88 gives gap −44 → −24 → clamped to
-**−14**. Granting the Estates General twelve points moved it to −32 → −17.6 →
-**still −14.** Zero change from the crown-power term; the reading shifted by 3,
-entirely from the "chambers hold something" line.
+### Fixed
 
-The floor is gone. The mechanism built to reward conceding was invisible until
-you were already nearly compliant, which is exactly backwards — the *first*
-concession is the one that has to feel like it bought something.
-
-### Also
-
-The Drift panel now says who each pressure means: the officer corps; the
-peasantry and the urban workers; merchants, reformers and an educated public;
-the great houses and the church.
+- **No woman of the blood in office before the mass franchise.** The gate covered
+  generated courtiers and not the royal family, which is how a princess ran the
+  Exchequer in 1645.
+- **The Drift headline is dynamic.** It was static flavour that could contradict
+  the reasons printed directly beneath it — telling you the officers had been
+  asked to solve too many problems while the attribution correctly said
+  otherwise.
+- **Bills are attributed to the chamber whose interest sponsored them**, not to
+  whichever chamber happened to be first in the list.
 
 ---
 
