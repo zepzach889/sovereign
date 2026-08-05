@@ -950,6 +950,7 @@ function endTurn(){
     const ps=provinces(S);
     if(ps.length)S.facs.provinces.mood=clamp(ps.reduce((a,p)=>a+p.loyalty,0)/ps.length);
   }
+  decayGrievance(S);
   tickPressureWatch(S);
   officeUpkeep(S);
   // births

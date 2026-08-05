@@ -6,13 +6,13 @@
    pressure is rising, and the player can watch it happen.
    ===================================================================== */
 const PRESSURES=[
-  {id:"military",name:"The Barracks",toward:"military government",
+  {id:"military",name:"The Barracks",who:"the officer corps",toward:"military government",
    blurb:"officers who have been asked to solve too many problems"},
-  {id:"radical",name:"The Streets",toward:"a people's republic",
+  {id:"radical",name:"The Streets",who:"the peasantry and the urban workers",toward:"a people's republic",
    blurb:"workers and reformers with nothing left to lose"},
-  {id:"constitutional",name:"The Chambers",toward:"a republic",
+  {id:"constitutional",name:"The Chambers",who:"merchants, reformers and an educated public",toward:"a republic",
    blurb:"an educated public that wants the crown bounded or gone"},
-  {id:"restorationist",name:"The Old Order",toward:"a crown",
+  {id:"restorationist",name:"The Old Order",who:"the great houses and the church",toward:"a crown",
    blurb:"the great houses, the church, and whoever waits in exile"}
 ];
 /* the instantaneous reading, 0-100, from the state of the realm */
@@ -55,7 +55,10 @@ function constitutionalRelief(S){
   const held=(S.gov.institutions||[]).reduce((a,i)=>a+i.power,0);
   if(isMonarchy(S)){
     const gap=expectedCrown(S)-(S.gov.crown.power|0);
-    r+=Math.max(-14,Math.min(30,gap*0.55));   /* under the curve, or over it */
+    /* no floor on the way down: the FIRST concession is the one that has to
+       feel like it bought something, and being far over the curve must not
+       flatten every step you take toward it */
+    r+=Math.min(30,gap*0.55);
   } else {
     r+=14;                                     /* the crown question is settled */
   }
@@ -111,14 +114,19 @@ function pressureWhy(S,id){
 /* and what would actually bring it down */
 function pressureRelief(S,id){
   if(id==="constitutional"){
-    if(!isMonarchy(S))return "";
+    if(!isMonarchy(S))return "Elections held when due, a franchise widened, and a chamber whose bills you do not simply refuse.";
     const gap=expectedCrown(S)-(S.gov.crown.power|0);
     if(gap<0)return `Conceding power would tell: every point the crown gives up below ${expectedCrown(S)} takes this reading down with it.`;
     return "The crown already sits under what the age expects, which is most of why this is survivable.";
   }
-  if(id==="military")return "Pay the arrears, stop leaning on the regiment, and cut the establishment you cannot afford.";
-  if(id==="radical")return "Bread, wages, and a tax burden the poor are not carrying alone.";
-  return "Titles, privileges, and a church that feels consulted.";
+  /* every remedy named here must be a thing the player can actually do */
+  if(id==="military")return "Pay the army's arrears · cut the host or the standing establishment in the Ledger · commission from outside the great houses.";
+  if(id==="radical")return "Open the granaries and fund relief · lighten the tax burden · widen the franchise before it is demanded.";
+  return "Endow the old order · restore privileges in the Ledger · a marriage into a great house.";
+}
+/* leaning on the army fades from memory, as it did */
+function decayGrievance(S){
+  if((S._militaryLeaned||0)>0&&chance(0.5))S._militaryLeaned=Math.max(0,S._militaryLeaned-1);
 }
 function pressureBase(S,id){
   const f=S.facs;
@@ -192,7 +200,7 @@ function pressurePanel(S){
     ${PRESSURES.filter(p=>pressureOf(S,p.id)>=30&&REGIME_OF_PRESSURE[p.id]!==(S.regime||"monarchy")).sort((a,b)=>pressureOf(S,b.id)-pressureOf(S,a.id)).map(p=>{
       const v=pressureOf(S,p.id);
       const cls=v>=78?"crit":v>=62?"warn":"";
-      return `<div class="prow ${cls}"><span class="pn">${esc(p.name)}</span><span class="pw">${pressureWord(v)}</span></div>`;
+      return `<div class="prow ${cls}"><span class="pn">${esc(p.name)}${p.who?` <small style="color:var(--dim)">· ${esc(p.who)}</small>`:""}</span><span class="pw">${pressureWord(v)}</span></div>`;
     }).join("")}
     <div class="pnote">${esc(lead.def.blurb)} — the realm leans toward ${esc(lead.def.toward)}.</div>
     ${lead.v>=52?`<div class="pwhy"><div class="pwhyh">Why ${esc(lead.def.name.toLowerCase())}</div>

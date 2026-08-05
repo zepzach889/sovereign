@@ -346,3 +346,28 @@
 .pwhyh{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--brass-dim);margin-bottom:4px}
 .pwhyr{font-size:11px;color:var(--dim);line-height:1.45}
 .pwhyr.rel{margin-top:5px;color:#9db3a0;font-style:italic}
+
+/* the ledger */
+.ledsum{display:flex;gap:20px;align-items:baseline;padding:9px 0 12px;margin-bottom:6px;
+  border-bottom:1px solid var(--line);font-size:12px;color:var(--dim)}
+.ledsum b{color:var(--bone);font-size:14px}
+.ledrow{border:1px solid var(--line);border-radius:8px;padding:11px 13px;margin-bottom:9px;background:var(--console2)}
+.ledhead{display:flex;justify-content:space-between;align-items:baseline}
+.ledname{font-size:14px;color:var(--bone)}
+.ledcost{font-size:14px;color:var(--brass)}
+.ledwhat{font-size:11.5px;color:var(--dim);margin:3px 0 7px;line-height:1.45}
+.ledposture{display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:11px;margin-bottom:7px}
+.ledstep{color:var(--dim);opacity:.55}
+.ledstep.past{opacity:.35;text-decoration:line-through}
+.ledstep.on{color:var(--brass);opacity:1;border-bottom:1px solid var(--brass-dim)}
+.ledarrow{color:var(--line)}
+.ledwarn{font-size:11px;color:var(--crisis);font-style:italic;margin-bottom:6px}
+.ledacts{display:flex;gap:7px;margin-bottom:5px}
+.ledbtn{background:transparent;border:1px solid var(--brass-dim);color:var(--brass);
+  font:inherit;font-size:11.5px;padding:4px 10px;border-radius:5px;cursor:pointer}
+.ledbtn.ghost{border-color:var(--line);color:var(--dim)}
+.ledbtn:disabled{opacity:.35;cursor:default}
+.ledwho{display:flex;gap:14px;font-size:10.5px}
+.ledbad{color:var(--crisis)}
+.ledgood{color:var(--good)}
+.ledfoot{font-size:11px;color:var(--dim);font-style:italic;margin-top:10px}

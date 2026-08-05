@@ -84,6 +84,8 @@ function wire(){
   const sg=document.getElementById("seatGo");if(sg)sg.onclick=()=>doSeatShift();
   document.querySelectorAll("[data-heirage]").forEach(b=>b.onclick=()=>doHeirAge(b.dataset.heirage));
   document.querySelectorAll("[data-bill]").forEach(b=>b.onclick=()=>doBill(b.dataset.bill));
+  const lg=document.getElementById("btnLedger");
+  if(lg)lg.onclick=()=>ledgerModal();
   const ct=document.getElementById("cadTog");
   if(ct)ct.onclick=()=>{S.ui=S.ui||{};S.ui.cadetsOpen=!S.ui.cadetsOpen;render();};
   document.querySelectorAll("[data-elecevery]").forEach(b=>b.onclick=()=>{

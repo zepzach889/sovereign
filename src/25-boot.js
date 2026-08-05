@@ -40,6 +40,55 @@ function resumeAutosave(){
 }   /* bumped whenever a save needs migrating */
 function b64enc(s){return btoa(unescape(encodeURIComponent(s)));}
 function b64dec(s){return decodeURIComponent(escape(atob(s)));}
+/* =====================================================================
+   THE LEDGER SCREEN
+   Opened whenever you like, not priced against the court's business.
+   Cutting the army should not compete with celebrating a birth.
+   ===================================================================== */
+function ledgerModal(){
+  const draw=()=>{
+    const lines=ledgerAvailable(S);
+    const inc=income(S), out=upkeep(S), net=inc-out;
+    const rows=lines.map(l=>{
+      const step=ledgerStep(S,l.id);
+      const atFloor=step>=l.steps.length-1;
+      const save=ledgerSaving(S,l);
+      const angry=Object.keys(l.angry).filter(k=>S.facs[k]&&S.facs[k].present)
+        .map(k=>`${S.facs[k].name} ${l.angry[k]}`).join(" · ");
+      const glad=Object.keys(l.glad||{}).filter(k=>S.facs[k]&&S.facs[k].present)
+        .map(k=>`${S.facs[k].name} +${l.glad[k]}`).join(" · ");
+      return `<div class="ledrow">
+        <div class="ledhead"><span class="ledname">${esc(l.name)}</span><span class="ledcost">${l.cost(S)}<span class="sbd">/turn</span></span></div>
+        <div class="ledwhat">${esc(l.what)}</div>
+        <div class="ledposture">${l.steps.map((t,i)=>`<span class="ledstep${i===step?" on":""}${i<step?" past":""}">${esc(t)}</span>`).join("<span class=\"ledarrow\">›</span>")}</div>
+        ${l.warn&&step>0?`<div class="ledwarn">${esc(l.warn)}</div>`:""}
+        <div class="ledacts">
+          <button class="ledbtn" data-ledcut="${l.id}"${atFloor?" disabled":""}>${atFloor?"cut to the bone already":`Cut · saves about ${save}/turn`}</button>
+          <button class="ledbtn ghost" data-ledres="${l.id}"${step<=0?" disabled":""}>Restore</button>
+        </div>
+        ${atFloor?"":`<div class="ledwho">${angry?`<span class="ledbad">${esc(angry)}</span>`:""}${glad?`<span class="ledgood">${esc(glad)}</span>`:""}</div>`}
+      </div>`;
+    }).join("");
+    return `<h2>The Ledger of ${esc(S.nation)}</h2>
+      <p>What the state has committed itself to, and what each commitment costs every turn it stands. Cutting is cheap in gold and expensive in whoever lived off the line.</p>
+      <div class="ledsum"><span>In <b>+${inc}</b></span><span>Out <b>−${out}</b></span><span>Net <b class="${net<0?"sbwarn":""}">${net>=0?"+":""}${net}</b></span><span class="sbd">treasury ${S.treasury}</span></div>
+      ${rows}
+      <p class="ledfoot">A posture holds until you come back and change it. Nothing here spends your action for the season.</p>
+      <button class="cont" id="ledClose">Close</button>`;
+  };
+  const bg=openModal(draw());
+  const wire=()=>{
+    bg.querySelectorAll("[data-ledcut]").forEach(b=>b.onclick=()=>{
+      doLedgerCut(b.dataset.ledcut);
+      const m=bg.querySelector(".modal"); if(m){ m.innerHTML=draw(); wire(); } });
+    bg.querySelectorAll("[data-ledres]").forEach(b=>b.onclick=()=>{
+      doLedgerRestore(b.dataset.ledres);
+      const m=bg.querySelector(".modal"); if(m){ m.innerHTML=draw(); wire(); } });
+    const c=bg.querySelector("#ledClose"); if(c)c.onclick=()=>bg.remove();
+  };
+  wire();
+  return bg;
+}
 function openModal(inner){const bg=h(`<div class="modal-bg"><div class="modal">${inner}</div></div>`);bg.addEventListener("click",e=>{if(e.target===bg)bg.remove();});document.body.appendChild(bg);return bg;}
 /* ---------- save migration ----------
    Old codes still load. Anything a later version added is filled in here,
