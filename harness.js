@@ -616,6 +616,69 @@ console.log("\n— targeted screens —");
     ok(late > early, `pressure: the age no longer raises the demand (${early} -> ${late})`);
   }
 
+  /* ===== v13.2: every remedy the panel names must exist ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.military = 70; st._armyUpkeep = 20; st.privileges = 3;
+    st.facs.peasantry.mood = 30;
+    const ids = new Set(sandbox.availableActions(st).map(a => a.id));
+    const ledger = new Set(sandbox.ledgerAvailable(st).map(l => l.id));
+    /* the barracks */
+    ok(ids.has("arrears"), "levers: 'pay the arrears' is named as a remedy and does not exist");
+    ok(ledger.has("host") || ledger.has("standing"),
+       "levers: 'cut the establishment' is named and the Ledger offers no such line");
+    /* the streets */
+    ok(ids.has("relief"), "levers: 'open the granaries' is named and does not exist");
+    /* the old order */
+    ok(ids.has("honours"), "levers: 'endow the old order' is named and does not exist");
+    /* and each actually moves its own pressure */
+    for (const [act, press] of [["arrears", "military"], ["relief", "radical"], ["honours", "restorationist"]]) {
+      S = freshGame();
+      const s2 = B.S;
+      s2.military = 70; s2.treasury = 400; s2.facs.peasantry.mood = 30;
+      s2.pBump = { military: 40, radical: 40, restorationist: 40 };
+      const before = s2.pBump[press];
+      const a = sandbox.availableActions(s2).find(x => x.id === act);
+      ok(!!a, `levers: ${act} unavailable in a state that needs it`);
+      if (a) {
+        const r = a.resolve ? a.resolve(s2) : a;
+        if (r.effect) r.effect(s2);
+        ok((s2.pBump[press] || 0) < before,
+           `levers: ${act} did not lower ${press} pressure (${before} -> ${s2.pBump[press]})`);
+      }
+    }
+  }
+
+  /* ===== v13.2: leaning on the army fades from memory ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st._militaryLeaned = 6;
+    for (let i = 0; i < 40; i++) sandbox.decayGrievance(st);
+    ok(st._militaryLeaned < 6, "levers: a grievance from 1730 is still being held in 1905");
+  }
+
+  /* ===== v13.2: the first concession has to buy something ===== */
+  {
+    S = freshGame();
+    const st = B.S;
+    st.eraIdx = 4;                       /* Reason: the age expects 44 */
+    st.gov.institutions.push({ id: "eg", name: "Estates General", composition: "nobility", power: 0, rights: ["tax"] });
+    st.gov.crown.power = 100; st.gov.institutions[0].power = 0;
+    const before = sandbox.pressureBase(st, "constitutional");
+    sandbox.transferPower(st, st.gov.institutions[0], 12);
+    const after = sandbox.pressureBase(st, "constitutional");
+    /* it is not enough that it moved — a twelve-point concession from an
+       absolute throne has to move it by more than the rounding. With the old
+       floor in place only the "chambers hold something" term applied, worth
+       about three; the crown-power term was clamped flat and contributed
+       nothing at all. */
+    ok(before - after >= 7,
+       `pressure: granting twelve points from an absolute throne moved the reading only ${before - after} — the floor is swallowing the concession`);
+    invariants(st, "after a first concession");
+  }
+
   /* ===== v13.1: every reading names its reasons ===== */
   {
     S = freshGame();
@@ -797,12 +860,57 @@ console.log("\n— targeted screens —");
       ok(acts.includes("grant") || acts.includes("requisition"),
          `revenue: a ${r} has no way at all to raise emergency funds`);
     }
-    /* and something, somewhere, can spend less */
+    /* ===== the Ledger: spending less is a posture, not a die roll ===== */
     S = freshGame();
     const st = B.S;
-    st.military = 70; st.privileges = 4; st._armyUpkeep = 20;
-    ok(sandbox.availableActions(st).map(a => a.id).includes("retrench"),
-       "revenue: there is still no way to cut spending");
+    st.military = 70; st.privileges = 4; st._armyUpkeep = 20; st._upkeepAge = 24;
+    const lines = sandbox.ledgerAvailable(st).map(l => l.id);
+    for (const id of ["host", "standing", "priv", "works"])
+      ok(lines.includes(id), `ledger: "${id}" is not offered as a commitment to cut`);
+    /* the civil list appears once there is a household to economise on */
+    {
+      const sp = sandbox.makePerson(st, "spouse", "f", 30);
+      sp.spouseId = st.monarch.id; st.monarch.spouseId = sp.id; st.family.push(sp);
+      for (let i = 0; i < 4; i++)
+        st.family.push(sandbox.makePerson(st, "child", "m", 6, null, [st.monarch.id, sp.id]));
+      ok(sandbox.ledgerAvailable(st).map(l => l.id).includes("household"),
+         "ledger: the civil list is not offered even with a household of six");
+    }
+
+    /* every line actually reduces upkeep when cut, and names an enemy */
+    for (const id of lines) {
+      S = freshGame();
+      const s2 = B.S;
+      s2.military = 70; s2.privileges = 4; s2._armyUpkeep = 20; s2._upkeepAge = 24;
+      const before = sandbox.upkeep(s2);
+      const l = sandbox.ledgerLine(s2, id);
+      ok(Object.keys(l.angry).length > 0, `ledger: cutting "${id}" angers nobody`);
+      const angryK = Object.keys(l.angry).find(k => s2.facs[k] && s2.facs[k].present);
+      const moodBefore = angryK ? s2.facs[angryK].mood : null;
+      sandbox.doLedgerCut(id);
+      ok(sandbox.upkeep(s2) < before,
+         `ledger: cutting "${id}" did not lower upkeep (${before} -> ${sandbox.upkeep(s2)})`);
+      if (angryK) ok(s2.facs[angryK].mood < moodBefore,
+         `ledger: cutting "${id}" cost nothing with the ${angryK}`);
+      ok(sandbox.ledgerStep(s2, id) === 1, `ledger: the posture for "${id}" did not move`);
+      invariants(s2, `after cutting ${id}`);
+    }
+
+    /* a line cannot be cut past its floor */
+    S = freshGame();
+    const s3 = B.S;
+    s3.military = 90;
+    for (let i = 0; i < 8; i++) sandbox.doLedgerCut("host");
+    const l = sandbox.ledgerLine(s3, "host");
+    ok(sandbox.ledgerStep(s3, "host") === l.steps.length - 1,
+       "ledger: the host was cut past its lowest posture");
+    ok(s3.military >= 0, "ledger: cutting drove arms negative");
+    invariants(s3, "after cutting the host to the bone");
+
+    /* and restoring costs the treasury again */
+    const upAtFloor = sandbox.upkeep(s3);
+    sandbox.doLedgerRestore("host");
+    ok(sandbox.upkeep(s3) > upAtFloor, "ledger: restoring a line cost nothing");
   }
 
   /* ===== v13: legislation ===== */

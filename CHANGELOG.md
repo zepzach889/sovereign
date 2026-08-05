@@ -1,86 +1,85 @@
 # Sovereign — changelog
 
-## v13.1 — you were toppled by the calendar
+## v13.2 — the Ledger, and remedies that exist
 
-### Why the monarchy fell, and why it will not happen like that again
+The warnings landed last build: you got a Tiding, the Drift moved above the
+fold, you read the diagnosis and went to do something about it. Then the game
+named three remedies and contained none of them. That is worse than silence.
 
-The constitutional pressure formula had no term for crown power, for a
-charter, or for reform. A king holding 75 and a king holding 5 faced the
-same reading, and nothing a player could do would lower it. It was:
+### The Ledger
 
-```
-collapse×0.5 + merchants×0.28 + reformers×0.3 + press + opinion + era×4 + 8
-```
+Its own screen, opened from the top bar whenever you like, and it does **not**
+cost you the court's action — cutting the army should never compete with
+celebrating a birth.
 
-In the 1817 save that is ≈82 with collapse at zero — legitimacy 58, stability
-98, and a rupture regardless. A clock, not a response.
+Every standing commitment is a named line with its cost per turn, a posture you
+set, and somebody who lives off it:
 
-Half of that was right and stays: the demand for representative government rose
-with literacy and commerce whatever any individual monarch did, and 1848 hit
-prosperous states. That is the **rising floor**. What was missing is that
-conceding *worked*, which is the whole Britain-and-France lesson the prerogative
-ladder exists to teach.
+- **The host** — regiments, garrisons, powder and forage.
+- **The standing establishment** — the permanent army the Drilled Ranks
+  committed you to.
+- **Privileges of the great houses** — sinecures and exemptions on the roll
+  since nobody remembers when.
+- **The civil list** — the sovereign's household.
+- **Rails, sewers, schools and locks** — what your own advances promised.
 
-So there is now a **relief term** you earn:
+Each step down names what it saves and whom it enrages, holds until you revisit
+it, and can be restored at a price. Lines you have no commitment on don't
+appear. `retrench` — one action that rolled a die between three things you
+couldn't choose — is retired.
 
-- The age has an expectation of what a crown holds — 88 in the first era, five
-  by the last. Sitting under it pays; sitting far over it costs.
-- Chambers that hold real power, a charter, each widening of the franchise, and
-  a ministry that actually governs all count.
-- A reform granted **of its own motion** is remembered and keeps paying.
+### Remedies that exist
 
-A crown at 20 in the Steam age should now sit under the curve. A crown at 75
-should be far over it, and that gap is the number to watch.
+The diagnosis panel named three things. All three now exist:
 
-### The three warnings I owed you
+- **Pay the army's arrears.** Expensive, unglamorous, and the most reliable
+  thing any state has ever done about the possibility of a coup.
+- **Open the granaries and fund relief.** Every rising was hungry first.
+- **Endow the old order.** Titles, chapels and precedence — cheap, ceremonial,
+  and it keeps the great houses arguing about seating instead of restoration.
+- **Commission from outside the great houses** — an officer corps that owes its
+  career to the state rather than to its cousins.
 
-Proposed in the v12.3 triage, written into the plan, and then not built four
-builds running. That is why the rupture felt arbitrary.
+There is a test asserting that every remedy the panel names is an action the
+player can actually take, and that each one moves the pressure it claims to.
 
-- **Attribution.** Every reading names its two largest drivers and what would
-  bring it down. "The Barracks" at breaking point with the officers at 100 now
-  says *a state the officers no longer believe can govern* rather than implying
-  your soldiers hate you.
-- **Tidings.** Any pressure raises a notice the turn it crosses 62, and again at
-  78, phrased as report rather than alarm. It does not nag at the same band.
-- **Above the fold.** Once anything passes 62 the Drift panel moves to the top of
-  the sidebar instead of sitting under the provinces.
+**"Stop leaning on the regiment"** was scolding you in 1905 for a levy in 1730 —
+`_militaryLeaned` never decayed. It does now.
 
-### A ministry comes from a lower house
+### The floor that swallowed your concession
 
-Making the ministry born with the *first* chamber was my error. An Estates
-General holding twelve points and consenting to taxes is not a body that
-produces a Prime Minister — it is a body you summon when you need money and send
-home again. It now takes a commons, or an assembly grown to hold 30 points, and
-that single gate removes the coalition management, the programme of legislation,
-the early elections and the PM who "just is there" from a period where none of
-them existed.
+Verified arithmetic from the save. Relief was `max(−14, gap × 0.55)`. In the
+Reason age the expectation is 44; a crown at 88 gives gap −44 → −24 → clamped to
+**−14**. Granting the Estates General twelve points moved it to −32 → −17.6 →
+**still −14.** Zero change from the crown-power term; the reading shifted by 3,
+entirely from the "chambers hold something" line.
 
-### The heir's nursery
+The floor is gone. The mechanism built to reward conceding was invisible until
+you were already nearly compliant, which is exactly backwards — the *first*
+concession is the one that has to feel like it bought something.
 
-The sovereign's own children bred at 0.4 with one roll a turn, while cadet
-branches ran at 0.55. The direct line was starved by construction — which is why
-every game arrived at adoption. Three rolls now, as for a reigning house, and
-grandchildren enter at 0–4 like everyone else.
+### Also
 
-### Fixed
-
-- A new sovereign's consort stranded in a cadet line — whoever is crowned brings
-  their household back to court with them.
-- Relation labels in the branches going stale. They are recomputed against the
-  current sovereign at display time, which is the rule this project already had.
-- Office candidates labelled "cousin" instead of son or niece.
-- Duplicate Aristocracy chips on a match when the estate being placated *was* the
-  aristocracy — the chips and the effect now agree.
-- "Create peers" says why the Lords loathe it: every peer you create is a vote
-  the old families no longer control.
-- The crown in personal rule now names its minister after **every** election, not
-  only when the benches change hands.
+The Drift panel now says who each pressure means: the officer corps; the
+peasantry and the urban workers; merchants, reformers and an educated public;
+the great houses and the church.
 
 ---
 
 ## Still to come
 
+- **Voluntary transitions** — lay down the crown by statute, restore one by
+  statute, proclaim the workers' state deliberately. Right now every road out of
+  a monarchy is a rupture, which is why steering well still feels like being
+  steered. Gated by the machinery needed to do it: you cannot convert to a
+  republic by statute without a chamber to pass the statute.
+- **The petition that never fires** — the reform tiers read state rather than
+  events, so the card says "asked for" when nobody ever asked.
+- **The electorate** — `runElection` unions every chamber, so the unelected
+  upper house is voting. This is why the franchise felt absent.
+- **Careers for non-heir siblings** — the cloth, a regiment, a governorship, the
+  law. Taking the cloth removes someone from the succession.
+- **Province naming** — better defaults, and the player may rename.
 - **The republic rework** — naming, the offices-of-state slate, mandate-keeping
   feeding the election, civil society and the constitution folded into the
   convention phase, and a full audit of monarchy screens leaking through. This is
