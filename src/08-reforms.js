@@ -130,9 +130,12 @@ function reformTier(S,r){
   const ask=(S.reformAsk&&S.reformAsk[r.id])||0;
   if(ask>=2)return "duress";
   if(ask>=1)return "petition";
-  /* a reform passed while the country is already in uproar is a concession
-     whatever the palace chooses to call it */
-  if(typeof pressureOf==="function"&&pressureOf(S,"constitutional")>=62)return "petition";
+  /* A reform passed in an uproar is a concession whatever the palace calls
+     it — but only if the country has actually asked out loud. The tiers used
+     to infer an ask from the state of the world, so the card would say "asked
+     for" when nobody had asked, which is worse than getting the tier wrong. */
+  const asked=(S.reformAsk&&Object.keys(S.reformAsk).length>0)||S._estatesAsked;
+  if(asked&&typeof pressureOf==="function"&&pressureOf(S,"constitutional")>=62)return "petition";
   return "motion";
 }
 const TIER_LABEL={motion:"of its own motion",petition:"upon petition",duress:"under duress"};

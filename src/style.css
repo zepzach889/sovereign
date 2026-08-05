@@ -371,3 +371,27 @@
 .ledbad{color:var(--crisis)}
 .ledgood{color:var(--good)}
 .ledfoot{font-size:11px;color:var(--dim);font-style:italic;margin-top:10px}
+
+/* the floor of the house */
+.house{margin:5px 0 2px}
+.seatbar{position:relative;display:flex;height:9px;border-radius:3px;overflow:hidden;background:#12191f;margin-bottom:5px}
+.seatseg{display:block;height:100%}
+.seatseg.sfor{background:#6f9464}
+.seatseg.sdoubt{background:#7d7a55}
+.seatseg.sagainst{background:#9d5442}
+.seatneedle{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--bone);opacity:.85}
+.seatline{font-size:11px;color:var(--dim)}
+.seatline b{color:var(--bone)}
+.sfor{color:#8fbf80}
+.sdoubt{color:#c2bd80}
+.sagainst{color:#d1745c}
+.seatlist{margin-top:6px;padding-top:5px;border-top:1px solid var(--line)}
+.seatrow{display:flex;gap:8px;align-items:baseline;font-size:11px;padding:1px 0}
+.seatrow .sn{flex:1;color:var(--dim)}
+.seatrow .ss{color:var(--bone);min-width:28px;text-align:right}
+.seatrow .sst{min-width:62px;text-align:right;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+.seatget{margin-top:6px;font-size:11px;color:var(--dim);font-style:italic;line-height:1.45}
+.seatget b{color:var(--bone);font-style:normal}
+
+.whipline{font-size:11.5px;margin:0 0 10px;padding:5px 9px;border-radius:5px;
+  background:var(--console2);border:1px solid var(--line)}

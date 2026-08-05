@@ -158,7 +158,8 @@ function render(){
   const instHtml=S.gov.institutions.map(i=>`
     <div class="powerrow"><span class="pn">${esc(i.name)} <small>· ${i.composition}</small></span>
       <span class="powerbar chamber"><i style="width:${i.power}%"></i></span><span class="pp">${i.power}</span></div>
-    <div class="rights">${i.rights.filter(r=>r!=="petition").length?"consent over "+i.rights.filter(r=>r!=="petition").join(", "):"advisory"}${i.rights.includes("petition")?" · may petition":""}</div>`).join("");
+    <div class="rights">${i.rights.filter(r=>r!=="petition").length?"consent over "+i.rights.filter(r=>r!=="petition").join(", "):"advisory"}${i.rights.includes("petition")?" · may petition":""}</div>
+    ${houseFloor(S,i)}`).join("");
   const govHtml=`<div class="gov">
     <div class="gt"><span>The Government of ${esc(S.nation)}</span><span class="house">${esc(execHouse(S))}</span></div>
     <div class="hos">${esc(styled(S,S.monarch))} <small>· aged ${S.monarch.age}</small></div>
@@ -374,7 +375,8 @@ function renderCourt(){
   } else if(S.tab==="policy"){
     const c=consentCheck(S,"tax");
     const gated=c.required;
-    body=`<div class="sit-text">Set the standing burden of taxation. ${gated?`The ${esc(c.inst.name)} holds the purse: changing the rate requires its consent.`:"The Crown sets the rate at will."} Changing the rate is your act for this turn.</div>
+    body=`<div class="sit-text">Set the standing burden of taxation. ${gated?`The ${esc(c.inst.name)} holds the purse: changing the rate requires its consent.`:"The Crown sets the rate at will."}</div>
+      ${consentLine(S,"tax")}
       <div class="taxtiers">${TAX_ORDER.map(t=>{const T=TAX_TIERS[t];const cur=S.taxRate===t;
         const chips=Object.keys(T.fac||{}).map(k=>`<span class="chip fac ${T.fac[k]>0?"up":"down"}">${S.facs[k].name} ${T.fac[k]>0?"+":""}${T.fac[k]}/turn</span>`).join("");
         const inc=Math.round((16+S.development*0.55)*T.mult);
@@ -413,7 +415,11 @@ function renderCourt(){
     } else opts=`<div class="sit-text">Under elective law, the houses will choose each successor. There is no heir to designate.</div>`;
     body=`<div class="choices">${opts||`<div class="sit-text">The succession stands as the law provides${h?` — ${esc(h.name)} is heir`:""}.</div>`}</div>`;
   }
-  const skip=`<div style="margin-top:14px;text-align:right"><button class="cont" id="skipCourt" style="opacity:.8">Let the season pass ungoverned → <span style="font-size:10px;color:var(--dim)">(−4 Stability, Legitimacy suffers)</span></button></div>`;
+  const _d=S._courtDid||{};
+  const _did=_d.act||_d.reform||_d.tax;
+  const skip=`<div style="margin-top:14px;text-align:right"><button class="cont" id="skipCourt" style="opacity:.8">${_did
+    ?`The season's business is done → <span style="font-size:10px;color:var(--dim)">(${[_d.act?"an act of state":null,_d.reform?"a reform":null,_d.tax?"the rate":null].filter(Boolean).join(" · ")})</span>`
+    :`Let the season pass ungoverned → <span style="font-size:10px;color:var(--dim)">(−4 Stability, Legitimacy suffers)</span>`}</button></div>`;
   const who=pmGoverns(S)?`${esc(S.pm.holder)}, ${esc(S.pm.office)},`
     :(!isMonarchy(S)&&S.pm)?`${esc(S.pm.holder)}, ${esc(S.pm.office)},`
     :`${esc(styled(S,S.monarch))} ${S.regency?"(under regency)":""}`;
@@ -690,6 +696,42 @@ function councilPanel(S){
   return `<div class="press" style="margin-top:8px"><div class="gt">${esc(S.gov.cabinet)}</div>${rows}
     <div class="pnote">${filled} of ${ROLES.length} posts filled — a capable officer cheapens the work of their own department and quietly improves it; an incompetent one does the reverse, every turn they sit.</div></div>`;
 }
+/* =====================================================================
+   THE FLOOR OF THE HOUSE
+   Seats, who holds them, and — for anything you might want to put to
+   them — whether you have the votes. This is the arithmetic that makes a
+   chamber a place you govern in rather than a bar on a readout.
+   ===================================================================== */
+/* a one-line count for anything that needs the chamber's consent */
+function consentLine(S,right){
+  const c=consentCheck(S,right);
+  if(!c.required||!c.whip)return "";
+  const w=c.whip;
+  return `<div class="whipline ${w.carries?"sfor":"sagainst"}">${esc(c.inst.name)}: about ${w.likely} of ${w.total}, ${w.need} carries it — ${w.carries?"this would pass":`${w.short} short`}</div>`;
+}
+function houseFloor(S,inst){
+  const w=whipCount(S,inst,null);
+  if(!w.rows.length)return "";
+  const open=!!(S.ui&&S.ui.floorOpen&&S.ui.floorOpen[inst.id]);
+  const bar=w.rows.map(r=>{
+    const cls=r.stance==="for"?"sfor":r.stance==="against"?"sagainst":"sdoubt";
+    return `<span class="seatseg ${cls}" style="flex:${r.seats}" title="${esc(r.name)} — ${r.seats} seats, ${esc(r.stance)}"></span>`;
+  }).join("");
+  const rows=w.rows.map(r=>`<div class="seatrow"><span class="sn">${esc(r.name)}</span><span class="ss">${r.seats}</span><span class="sst ${r.stance==="for"?"sfor":r.stance==="against"?"sagainst":"sdoubt"}">${r.stance}</span></div>`).join("");
+  const need=w.need, tot=w.total;
+  const get=gettable(S,inst,null);
+  return `<div class="house">
+    <div class="seatbar">${bar}<span class="seatneedle" style="left:${(need/tot*100).toFixed(1)}%"></span></div>
+    <div class="seatline">
+      <b>${tot}</b> seats · <b>${need}</b> for a majority ·
+      <span class="${w.carries?"sfor":"sagainst"}">${w.carries?`about ${w.likely} would carry a measure today`:`about ${w.likely} — ${w.short} short`}</span>
+      <button class="cadtog" data-floor="${esc(inst.id)}">${open?"hide the floor ▴":"the floor ▾"}</button>
+    </div>
+    ${open?`<div class="seatlist">${rows}
+      ${get.length?`<div class="seatget">Short of a majority you would have to bring over ${get.map(g=>`<b>${esc(g.name)}</b> (${g.seats})`).join(" or ")} — ${esc(get[0].price)}.</div>`:""}
+    </div>`:""}
+  </div>`;
+}
 function prerogPanel(S){
   if(!isMonarchy(S)||!S.gov.institutions.length)return "";
   const rows=PREROGATIVES.map(p=>{
@@ -739,16 +781,20 @@ function renderPmOffer(){
 function renderSession(){
   const pair=S._bill;
   if(!pair||!pair.main||!S.facs[pair.main.bloc]){ S._bill=null; S.phase="dyncourt"; return `<div class="sit-text">The session rises.</div><button class="cont" id="dynSkip">Continue →</button>`; }
-  const ch=S.gov.institutions[0];
+  const ch=(S.gov.institutions||[]).find(i=>(composition[i.composition]||[]).indexOf(pair.main.bloc)>=0)||S.gov.institutions[0];
   const card=(b,k,mk,lead)=>`<button class="choice ${k==="opp"?"dyn-role":"dyn-match"}" data-bill="${k}">
     <div class="cl"><span class="mk">${mk}</span><span class="lbl">${esc(b.title)}</span></div>
     <div class="ch">${esc(lead)} — ${esc(b.text)}</div>
     <div class="costs">${billChips(S,b).map(([cl,t])=>`<span class="chip ${cl}">${esc(t)}</span>`).join("")}</div></button>`;
+  const wc=ch?whipCount(S,ch,{likes:{[pair.main.bloc]:+30}}):null;
   const canRefuse=isMonarchy(S)&&typeof hasPrerog==="function"&&hasPrerog(S,"assent");
   const n=(S._assents||0)+1;
   return `<div class="eyebrow">The session — a bill comes up for assent</div>
     <div class="sit-title">${esc(ch?ch.name:"The Chamber")} Has Passed a Bill</div>
     <div class="sit-text">It has been read three times, amended twice, and carried. It now wants a signature.</div>
+    ${wc?`<div class="press" style="margin:8px 0"><div class="gt">The division</div>
+      <div class="seatline"><b>${wc.for}</b> for · <b>${wc.doubtful}</b> doubtful · <b>${wc.against}</b> against · <b>${wc.need}</b> carries it</div>
+      <div class="pnote">${wc.rows.map(r=>`${esc(r.name)} ${r.seats}`).join(" · ")}</div></div>`:""}
     <div class="choices">
       ${card(pair.main,"main","I",`brought by the ${esc(S.facs[pair.main.bloc].name)} interest`)}
       ${pair.opp?card(pair.opp,"opp","II",`the opposition's bill, brought by the ${esc(S.facs[pair.opp.bloc].name)} interest`):""}

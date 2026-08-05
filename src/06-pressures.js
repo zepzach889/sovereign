@@ -202,7 +202,7 @@ function pressurePanel(S){
       const cls=v>=78?"crit":v>=62?"warn":"";
       return `<div class="prow ${cls}"><span class="pn">${esc(p.name)}${p.who?` <small style="color:var(--dim)">· ${esc(p.who)}</small>`:""}</span><span class="pw">${pressureWord(v)}</span></div>`;
     }).join("")}
-    <div class="pnote">${esc(lead.def.blurb)} — the realm leans toward ${esc(lead.def.toward)}.</div>
+    <div class="pnote">${esc((pressureWhy(S,lead.def.id)[0])||lead.def.blurb)} — the realm leans toward ${esc(lead.def.toward)}.</div>
     ${lead.v>=52?`<div class="pwhy"><div class="pwhyh">Why ${esc(lead.def.name.toLowerCase())}</div>
       ${pressureWhy(S,lead.def.id).map(t=>`<div class="pwhyr">· ${esc(t)}</div>`).join("")}
       <div class="pwhyr rel">${esc(pressureRelief(S,lead.def.id))}</div></div>`:""}

@@ -516,6 +516,26 @@ const EVENTS=[
           provinces(S).forEach(p=>{if(!p.core)p.loyalty=clamp(p.loyalty-7);});},
         chron:S=>`the Crown scattered the unauthorized assembly of the towns by force.`,
         out:"The hall is cleared in an afternoon. What was a demand becomes a grievance, what was a delegation becomes a movement, and the countryside hears about it within the month."}]},
+  { id:"estates_cry",w:8,freq:3,
+    when:S=>isMonarchy(S)&&!S.gov.institutions.length
+      &&(eraIdx(S)>=2||pressureOf(S,"constitutional")>=45),
+    title:"The Realm Asks for a Hearing",
+    text:S=>`The great houses, the towns and the church have between them found a single thing to agree on: that the ${crownWord(S)} taxes them without asking, and that this was tolerable when the realm was smaller. A petition has been drawn and signed. It asks for an assembly — advisory, occasional, summoned at the ${crownWord(S)}'s pleasure. It asks very politely, this time.`,
+    choices:[
+      {label:"Receive the petition; the question is opened",
+        cost:{stability:+3},fac:{aristocracy:+4,merchants:+5,clergy:+3},
+        effect:S=>{ askReform(S,"summon_estates",1); S._estatesAsked=true; },
+        chron:S=>`the petition for an assembly was received with warmth, and the question was opened that would not again close.`,
+        out:"Received, read, and answered with a courtesy that commits you to nothing. But the question is on the record now, and questions on the record have a way of becoming statutes."},
+      {label:"Return it unread",
+        cost:{stability:-5},fac:{merchants:-7,aristocracy:-4,clergy:-3},
+        effect:S=>{ S._estatesDismissed=(S._estatesDismissed||0)+1;
+          bumpPressure(S,"constitutional",9);
+          askReform(S,"summon_estates",(S._estatesDismissed>=3)?2:1);
+          S._estatesAsked=true; },
+        chron:S=>`the petition for an assembly was returned unread; the signatures were copied out first.`,
+        out:"Returned, unopened, with a note about precedent. The signatories are not surprised and were not really expecting otherwise. They keep the list."}
+    ]},
   { id:"commons_cry",w:0.8,freq:6,when:S=>{ const ok=S.gov.institutions.length>0&&!S.gov.institutions.some(i=>i.composition!=="nobility")&&(S.facs.merchants.strength+S.facs.peasantry.strength)>=95; if(ok)askReform(S,"lower_house",1); return ok; },
     title:"The Cry for a Commons",
     text:S=>`The realm below the great houses has grown too big to ignore: guild money, market towns, a countryside that reads. Petitions arrive from forty towns with one demand — a chamber of their own.`,

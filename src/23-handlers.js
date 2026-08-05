@@ -18,14 +18,14 @@ function applyOutcome(o,next){
 
 function wire(){
   document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;S.openReform=null;render();});
-  document.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>doAction(b.dataset.act));
+  document.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{S._courtKind="act";doAction(b.dataset.act);});
   document.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>doEvent(+b.dataset.ev));
-  document.querySelectorAll("[data-tax]").forEach(b=>b.onclick=()=>setTax(b.dataset.tax));
+  document.querySelectorAll("[data-tax]").forEach(b=>b.onclick=()=>{S._courtKind="tax";setTax(b.dataset.tax);});
   document.querySelectorAll("[data-openreform]").forEach(b=>b.onclick=()=>{S.openReform=(S.openReform===b.dataset.openreform)?null:b.dataset.openreform;S._reformPower=null;S._reformLaw=null;S._reformDest=null;render();});
   document.querySelectorAll("[data-lawpick]").forEach(b=>b.onclick=()=>{S._reformLaw=b.dataset.lawpick;render();});
   document.querySelectorAll("[data-rdest]").forEach(b=>b.onclick=()=>{S._reformDest=+b.dataset.rdest;render();});
   document.querySelectorAll("[data-rsrc]").forEach(b=>b.onclick=()=>{S._reformSrc=+b.dataset.rsrc;render();});
-  document.querySelectorAll("[data-enact]").forEach(b=>b.onclick=()=>startReform(b.dataset.enact));
+  document.querySelectorAll("[data-enact]").forEach(b=>b.onclick=()=>{S._courtKind="reform";startReform(b.dataset.enact);});
   document.querySelectorAll("[data-dyn]").forEach(b=>b.onclick=()=>doDyn(b.dataset.dyn));
   document.querySelectorAll("[data-designate]").forEach(b=>b.onclick=()=>doDesignate(+b.dataset.designate));
   document.querySelectorAll("[data-adopt]").forEach(b=>b.onclick=()=>doDyn("adopt"));
@@ -86,6 +86,9 @@ function wire(){
   document.querySelectorAll("[data-bill]").forEach(b=>b.onclick=()=>doBill(b.dataset.bill));
   const lg=document.getElementById("btnLedger");
   if(lg)lg.onclick=()=>ledgerModal();
+  document.querySelectorAll("[data-floor]").forEach(b=>b.onclick=()=>{
+    S.ui=S.ui||{}; S.ui.floorOpen=S.ui.floorOpen||{};
+    const k=b.dataset.floor; S.ui.floorOpen[k]=!S.ui.floorOpen[k]; render();});
   const ct=document.getElementById("cadTog");
   if(ct)ct.onclick=()=>{S.ui=S.ui||{};S.ui.cadetsOpen=!S.ui.cadetsOpen;render();};
   document.querySelectorAll("[data-elecevery]").forEach(b=>b.onclick=()=>{
@@ -308,7 +311,10 @@ function doCelebrate(){
   render();
 }
 function doSkipCourt(){
+  const d=S._courtDid||{};
+  if(d.act||d.reform||d.tax){ endCourt(); return; }   /* you governed; you are simply finished */
   S.legitPen=(S.legitPen||0)+6; S.stability=clamp(S.stability-4);
+  S._courtKind="act";
   applyOutcome({chron:null,out:"The season passes ungoverned. Petitions gather dust, the court drifts, and the realm quietly notes the empty chair."},"dynastic");
   render();
 }

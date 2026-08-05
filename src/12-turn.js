@@ -8,6 +8,7 @@ function beginTurn(first){
   for(const k in S.facs){ const f=S.facs[k]; const m=Math.round(f.mood);
     f.delta=(f.lastMood!=null)?(m-f.lastMood):0; f.lastMood=m; }
   S.phaseDone={event:false,court:false,advance:false,dynastic:false};
+  S._courtDid={act:false,reform:false,tax:false}; S._courtKind=null;
   S._advBought=false; S._worksBuilt=0;
   S.currentEvent=null; S.result=null; S.openReform=null; S.pending=null; S.dyn=null;
   S.tab="govern";
@@ -220,7 +221,23 @@ function continueFlow(){
     S._pmField=pmField(S,runElection().winner); S._pmFieldAfter=nx; S.phase="pmpick"; render(); return; }
   routeNext(nx);
 }
+function courtSpent(S,kind){ return !!(S._courtDid&&S._courtDid[kind]); }
+function courtAllSpent(S){
+  const d=S._courtDid||{};
+  const reformable=(typeof availableReforms==="function")&&availableReforms(S).length>0;
+  return !!d.act && !!d.tax && (!reformable || !!d.reform);
+}
 function afterCourt(){
+  const kind=S._courtKind||"act"; S._courtKind=null;
+  S._courtDid=S._courtDid||{}; S._courtDid[kind]=true;
+  S.result=null;
+  /* the court goes on sitting — five years is long enough to do more than
+     one thing, and it always was */
+  if(!courtAllSpent(S)){ S.phase="court"; render(); return; }
+  endCourt();
+}
+function doCloseCourt(){ endCourt(); }
+function endCourt(){
   S.phaseDone.court=true; S.result=null;
   if(!S.phaseDone.advance){ S.phase="advance"; render(); return; }
   toDynastic();
@@ -316,6 +333,11 @@ function toDynCourt(){ S.dyn=null; S.result=null; S.phase="dyncourt"; render(); 
    sends them up. This is what "withhold assent" was always supposed to
    be pointed at.
    ===================================================================== */
+/* the chamber a bill actually belongs to — the one its sponsors sit in */
+function billChamber(S,b){
+  const inst=(S.gov.institutions||[]).find(i=>(composition[i.composition]||[]).indexOf(b.bloc)>=0);
+  return (inst||S.gov.institutions[0]||{name:"chamber"}).name;
+}
 function maybeBill(S){
   if(S._bill)return;
   if(!S.gov.institutions.length)return;
@@ -353,7 +375,7 @@ function doBill(kind){
     applyBill(S,b);
     const other=(b===pair.main)?pair.opp:pair.main;
     if(other&&S.facs[other.bloc])S.facs[other.bloc].mood=clamp(S.facs[other.bloc].mood-6);
-    out={chron:S2=>`${b.title} passed the ${S2.gov.institutions[0]?S2.gov.institutions[0].name:"chamber"} and received assent.`,
+    out={chron:S2=>`${b.title} passed the ${esc0(billChamber(S2,b))} and received assent.`,
       out:`${b.title} is law. ${b===pair.main?"The interest that carried the chamber has been given what it came for.":"The government took the opposition's bill instead of its own — which is either statesmanship or surrender, and will be called both."}`};
   }
   applyOutcome(out,"dyncourt"); render();
@@ -460,7 +482,7 @@ function officeField(S,roleId){
   }
   /* and the blood, if any of it is idle and grown */
   if(isMonarchy(S)){
-    roleEligible(S).sort((a,b)=>b.age-a.age).slice(0,3).forEach(p=>{
+    roleEligible(S).filter(p=>officeAgeAllows(S,p)).sort((a,b)=>b.age-a.age).slice(0,3).forEach(p=>{
       list.push({id:p.id,name:p.name,age:p.age,gender:p.gender,trait:p.trait,
         royal:true,alive:true,job:null,bloc:"aristocracy",
         rel:(typeof relCodeFor==="function")?relCodeFor(S,p):p.rel,
@@ -539,6 +561,14 @@ function tickCourt(S,span){
   S.court.forEach(c=>{ c.age+=span;
     if(c.alive&&chance(traitMortality(c,mortalityChance(c.age,span)))){ c.alive=false; c.job=null; } });
   S.court=S.court.filter(c=>c.alive);
+}
+/* No woman of the blood held an office of state before the mass franchise
+   either. The gate covered generated courtiers and not the royal family,
+   which is how a princess ran the Exchequer in 1645. */
+function officeAgeAllows(S,p){
+  if(!p)return false;
+  if(p.gender!=="f")return true;
+  return eraIdx(S)>=7;
 }
 function roleEligible(S){
   const h=heirOf(S);
@@ -934,10 +964,13 @@ function endTurn(){
   });
   /* what the country is currently demanding, as against what you might
      think to do unprompted */
-  if(S.facs.reformers&&S.facs.reformers.present){
+  /* the reformers ask out loud, once, and it goes in the Tidings */
+  if(S.facs.reformers&&S.facs.reformers.present&&!S._reformersAsked){
+    S._reformersAsked=true;
     if(!S.gov.charter)askReform(S,"charter",1);
     askReform(S,"curtail",1);
     if(S.gov.institutions.some(i=>i.composition==="commons"))askReform(S,"franchise",1);
+    S.notices.push("The reformers have published their programme: a charter binding the crown to law, an end to government by prerogative, and the vote for those who pay for the state. It is printed, it is cheap, and it is everywhere.");
   }
   if((S._commonsDismissed||0)>=2)askReform(S,"lower_house",1);
   if(typeof pressureOf==="function"&&pressureOf(S,"radical")>=72){

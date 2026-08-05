@@ -58,11 +58,74 @@ function compMood(S,comp){
 /* ---------- power & consent ---------- */
 function rightsHeld(S){ const r=new Set(); S.gov.institutions.forEach(i=>i.rights.forEach(x=>r.add(x))); return r; }
 function institutionWithRight(S,right){ return S.gov.institutions.find(i=>i.rights.includes(right)); }
+/* =====================================================================
+   SEATS, AND THE COUNTING OF VOTES
+   Consent used to be a hidden roll: you asked, and afterwards you were
+   told. That is not parliamentary government — parliamentary government
+   is arithmetic you can see and work on. So a chamber has seats, the
+   seats belong to interests, and before you propose anything you can see
+   whether you have the numbers and, if not, exactly who is short and
+   what they want.
+   ===================================================================== */
+function chamberSeats(inst){
+  if(!inst)return 0;
+  if(inst.composition==="nobility")return 90;
+  if(inst.composition==="commons"||inst.composition==="broad")return 150;
+  return 120;
+}
+/* how the house is divided. Influence and the franchise decide it; mood
+   does not — an interest does not lose its seats for being cross. */
+function seatsOf(S,inst){
+  if(!inst)return [];
+  const ks=(composition[inst.composition]||[]).filter(k=>S.facs[k]&&S.facs[k].present);
+  if(!ks.length)return [];
+  const total=chamberSeats(inst);
+  const raw=ks.map(k=>({k,name:S.facs[k].name,
+    w:Math.max(0.05,S.facs[k].strength*franchiseWeight(S,k,inst.composition))}));
+  const sum=raw.reduce((a,r)=>a+r.w,0)||1;
+  let given=0;
+  const out=raw.map((r,i)=>{
+    const n=(i===raw.length-1)?(total-given):Math.round(total*r.w/sum);
+    given+=n; return {k:r.k,name:r.name,seats:Math.max(0,n)};
+  });
+  return out.sort((a,b)=>b.seats-a.seats);
+}
+function majorityOf(inst){ return Math.floor(chamberSeats(inst)/2)+1; }
+/* Where each interest stands on a given measure. Mood decides how they
+   vote; seats decide how much it matters. */
+function whipCount(S,inst,measure){
+  const rows=seatsOf(S,inst).map(r=>{
+    const f=S.facs[r.k];
+    let lean=f.mood-50;
+    if(measure&&measure.likes&&measure.likes[r.k]!=null)lean+=measure.likes[r.k];
+    const stance=lean>=8?"for":lean<=-8?"against":"doubtful";
+    return Object.assign({},r,{lean:Math.round(lean),stance,mood:Math.round(f.mood)});
+  });
+  const For=rows.filter(r=>r.stance==="for").reduce((a,r)=>a+r.seats,0);
+  const against=rows.filter(r=>r.stance==="against").reduce((a,r)=>a+r.seats,0);
+  const doubtful=rows.filter(r=>r.stance==="doubtful").reduce((a,r)=>a+r.seats,0);
+  const need=majorityOf(inst);
+  /* the doubtful split roughly with their mood, but you cannot rely on it */
+  const likely=For+Math.round(doubtful*0.5);
+  return {rows,for:For,against,doubtful,need,likely,
+    short:Math.max(0,need-likely),
+    carries:likely>=need,
+    total:chamberSeats(inst)};
+}
+/* who could be brought over, and what it would take */
+function gettable(S,inst,measure){
+  const w=whipCount(S,inst,measure);
+  return w.rows.filter(r=>r.stance!=="for"&&r.seats>0)
+    .sort((a,b)=>b.seats-a.seats)
+    .slice(0,3)
+    .map(r=>({k:r.k,name:r.name,seats:r.seats,
+      price:r.stance==="doubtful"?"a word and a favour":"an office, a bill of theirs, or a concession"}));
+}
 function consentCheck(S,right){
   const inst=institutionWithRight(S,right); if(!inst) return {required:false,approve:true};
-  const mood=compMood(S,inst.composition);
-  const threshold=48+inst.power*0.3;
-  return {required:true,inst,approve:mood>=threshold,mood,threshold};
+  const w=whipCount(S,inst,null);
+  return {required:true,inst,approve:w.carries,mood:compMood(S,inst.composition),
+    threshold:w.need,whip:w};
 }
 function transferPower(S,inst,amount){ const a=Math.min(amount,S.gov.crown.power); S.gov.crown.power-=a; inst.power+=a; }
 function powerToCrown(S,inst,amount){ const a=Math.min(amount,inst.power); inst.power-=a; S.gov.crown.power+=a; }
